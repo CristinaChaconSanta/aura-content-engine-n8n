@@ -1,0 +1,85 @@
+{
+  "schema_version": "1.0",
+  "metadata": {
+    "brand_name": "TU_MARCA",
+    "created_at": "2026-02-16T00:00:00Z",
+    "last_updated": "2026-02-16T00:00:00Z",
+    "total_executions": 0
+  },
+  "historial_contenido": [],
+  "temas_cubiertos": {
+    "ultimas_2_semanas": [],
+    "ultimo_mes": [],
+    "ultimo_trimestre": []
+  },
+  "performance_historico": {
+    "mejores_posts": [],
+    "peores_posts": [],
+    "engagement_promedio_por_pilar": {
+      "educacion": 0,
+      "inspiracion": 0,
+      "entretenimiento": 0,
+      "promocion": 0
+    },
+    "engagement_promedio_por_plataforma": {
+      "linkedin": 0,
+      "instagram": 0,
+      "twitter": 0
+    },
+    "mejores_horarios": {},
+    "mejores_hashtags": []
+  },
+  "decisiones_editoriales": [
+    {
+      "fecha": "2026-02-16",
+      "decision": "Inicializacion del sistema",
+      "razon": "Primera ejecucion del workflow",
+      "resultado": "pendiente"
+    }
+  ],
+  "restricciones_activas": [
+    "No repetir temas de las ultimas 2 semanas",
+    "Alternar entre contenido educativo y promocional",
+    "Maximo 2 posts promocionales por semana",
+    "Incluir al menos 1 post basado en tendencia actual"
+  ],
+  "calendario_editorial": {
+    "lunes": {
+      "pilar": "educacion",
+      "tipo_sugerido": "carousel",
+      "notas": "Tips, tutoriales, how-to"
+    },
+    "martes": {
+      "pilar": "tendencia_industria",
+      "tipo_sugerido": "single_image",
+      "notas": "Analisis de tendencias detectadas por scraping"
+    },
+    "miercoles": {
+      "pilar": "inspiracion",
+      "tipo_sugerido": "carousel",
+      "notas": "Caso de exito, testimonio, historia"
+    },
+    "jueves": {
+      "pilar": "cultura_marca",
+      "tipo_sugerido": "single_image",
+      "notas": "Detras de camaras, equipo, valores"
+    },
+    "viernes": {
+      "pilar": "educacion",
+      "tipo_sugerido": "carousel",
+      "notas": "Tip rapido, hack, recurso util"
+    },
+    "sabado": {
+      "pilar": "entretenimiento",
+      "tipo_sugerido": "single_image",
+      "notas": "Meme profesional, tendencia cultural"
+    },
+    "domingo": {
+      "pilar": "inspiracion",
+      "tipo_sugerido": "text_only",
+      "notas": "Reflexion, pregunta a la comunidad"
+    }
+  },
+  "competidores_monitoreados": [],
+  "keywords_seguimiento": []
+}

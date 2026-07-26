@@ -1,0 +1,622 @@
+{
+  "name": "Content Engine - Trend Research & Production",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtDay": 7,
+              "triggerAtHour": 20
+            }
+          ]
+        }
+      },
+      "id": "trigger-001",
+      "name": "Trigger Dominical 8PM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/trudax~reddit-scraper/runs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ \"searches\": $json.search_queries, \"maxItems\": 50, \"sort\": \"new\", \"time\": \"week\" }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "apify-reddit-001",
+      "name": "Apify Reddit Scraper",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 100],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "CONFIGURAR_APIFY_TOKEN",
+          "name": "Apify API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.apify.com/v2/acts/trudax~reddit-scraper/runs/last/dataset/items",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "apify-reddit-results-001",
+      "name": "Obtener Resultados Reddit",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 100],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "CONFIGURAR_APIFY_TOKEN",
+          "name": "Apify API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/apify~web-scraper/runs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ \"startUrls\": $json.influencer_urls, \"maxRequestsPerCrawl\": 30, \"pageFunction\": \"async function pageFunction(context) { const $ = context.jQuery; const title = $('title').text(); const text = $('article, .post-content, .entry-content, main').text().substring(0, 2000); return { url: context.request.url, title, text, scrapedAt: new Date().toISOString() }; }\" }) }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "apify-influencers-001",
+      "name": "Apify Scraper Influencers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "CONFIGURAR_APIFY_TOKEN",
+          "name": "Apify API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.apify.com/v2/acts/apify~web-scraper/runs/last/dataset/items",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "apify-influencers-results-001",
+      "name": "Obtener Resultados Influencers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "CONFIGURAR_APIFY_TOKEN",
+          "name": "Apify API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://newsapi.org/v2/everything",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "q", "value": "={{ $json.news_keywords }}" },
+            { "name": "language", "value": "es" },
+            { "name": "sortBy", "value": "relevancy" },
+            { "name": "pageSize", "value": "20" },
+            { "name": "from", "value": "={{ $now.minus(7, 'days').toISO() }}" }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "news-api-001",
+      "name": "NewsAPI Noticias Industria",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 500],
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "CONFIGURAR_NEWSAPI_KEY",
+          "name": "NewsAPI Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// CONFIGURACION DE MARCA - EDITAR AQUI\n// ============================================\nconst BRAND_CONFIG = {\n  name: 'TU_MARCA',\n  industry: 'tecnologia', // cambiar segun industria\n  search_queries: [\n    'tu marca keywords',\n    'industria tendencias',\n    'competidor 1',\n    'competidor 2'\n  ],\n  news_keywords: 'tu+marca OR industria OR tendencia',\n  influencer_urls: [\n    // URLs de blogs/sitios de influencers a scrapear\n    { url: 'https://ejemplo.com/blog' }\n  ],\n  target_platforms: ['linkedin', 'instagram', 'twitter'],\n  content_types: ['carousel', 'single_image', 'video_script'],\n  brand_voice: {\n    tone: 'profesional pero cercano',\n    personality: 'innovador, confiable, experto',\n    forbidden_words: ['barato', 'gratis'],\n    preferred_hashtags: ['#TuMarca', '#Industria'],\n    visual_style: {\n      primary_colors: ['#1a1a2e', '#16213e', '#0f3460'],\n      accent_color: '#e94560',\n      font_style: 'moderna sans-serif',\n      image_style: 'minimalista, limpio, profesional'\n    }\n  },\n  weekly_content_count: 7,\n  languages: ['es']\n};\n\nreturn [{\n  json: {\n    ...BRAND_CONFIG,\n    execution_date: new Date().toISOString(),\n    week_start: $now.toISO(),\n    week_end: $now.plus(7, 'days').toISO()\n  }\n}];"
+      },
+      "id": "config-001",
+      "name": "Configuracion de Marca",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// WAIT - Esperar a que los scrapers terminen\n// ============================================\n// n8n ejecuta esto despues de recibir los 3 inputs\nconst reddit = $input.first().json?.data || $input.first().json || [];\n\n// En produccion, conectar los 3 nodos de resultados\n// a un Merge node antes de este Code node\n\nconst allData = {\n  reddit_posts: Array.isArray(reddit) ? reddit : [reddit],\n  timestamp: new Date().toISOString()\n};\n\nreturn [{ json: allData }];"
+      },
+      "id": "wait-scrapers-001",
+      "name": "Esperar Scrapers (Merge)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [960, 300]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 3
+      },
+      "id": "merge-scrapers-001",
+      "name": "Merge Datos Scrapers",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [960, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// CONSOLIDAR DATOS DE SCRAPING\n// ============================================\nconst items = $input.all();\n\nconst consolidated = {\n  reddit: [],\n  influencers: [],\n  news: []\n};\n\nfor (const item of items) {\n  const data = item.json;\n  // Clasificar segun la fuente\n  if (data.subreddit || data.communityName) {\n    consolidated.reddit.push({\n      title: data.title || '',\n      body: (data.body || data.selftext || '').substring(0, 500),\n      score: data.score || data.upVotes || 0,\n      url: data.url || '',\n      subreddit: data.subreddit || data.communityName || '',\n      created: data.createdAt || data.created_utc || ''\n    });\n  } else if (data.articles) {\n    // NewsAPI format\n    for (const article of data.articles) {\n      consolidated.news.push({\n        title: article.title || '',\n        description: (article.description || '').substring(0, 300),\n        source: article.source?.name || '',\n        url: article.url || '',\n        publishedAt: article.publishedAt || ''\n      });\n    }\n  } else if (data.text || data.title) {\n    consolidated.influencers.push({\n      title: data.title || '',\n      content: (data.text || '').substring(0, 500),\n      url: data.url || '',\n      scrapedAt: data.scrapedAt || ''\n    });\n  }\n}\n\nconsolidated.summary = {\n  total_reddit: consolidated.reddit.length,\n  total_influencers: consolidated.influencers.length,\n  total_news: consolidated.news.length,\n  scraped_at: new Date().toISOString()\n};\n\nreturn [{ json: consolidated }];"
+      },
+      "id": "consolidate-001",
+      "name": "Consolidar Datos Scraping",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// FASE 2: CARGAR CONTEXT GRAPH\n// ============================================\n// El Context Graph es la MEMORIA INSTITUCIONAL\n// Contiene: historial de contenido publicado,\n// decisiones previas, metricas de engagement,\n// temas ya cubiertos, etc.\n//\n// OPCION A: Cargar desde archivo JSON local\n// OPCION B: Cargar desde base de datos (Supabase, Postgres)\n// OPCION C: Cargar desde Google Sheets\n//\n// Aqui usamos la estructura base.\n// En produccion, reemplazar con lectura real.\n\nconst contextGraph = {\n  metadata: {\n    last_updated: new Date().toISOString(),\n    version: '1.0',\n    total_posts_historicos: 0\n  },\n  historial_contenido: [\n    // Se llena automaticamente con cada ejecucion\n    // Estructura de cada entrada:\n    // {\n    //   id: 'uuid',\n    //   fecha_publicacion: 'ISO date',\n    //   plataforma: 'linkedin|instagram|twitter',\n    //   tipo: 'carousel|single|video',\n    //   tema_principal: 'string',\n    //   subtemas: ['string'],\n    //   hashtags_usados: ['string'],\n    //   engagement: { likes: 0, comments: 0, shares: 0 },\n    //   texto_usado: 'string',\n    //   imagen_prompt: 'string',\n    //   performance_score: 0-100\n    // }\n  ],\n  temas_cubiertos_ultimas_4_semanas: [],\n  temas_mejor_performance: [],\n  decisiones_editoriales: [\n    // Registro de por que se tomaron ciertas decisiones\n    // {\n    //   fecha: 'ISO date',\n    //   decision: 'string',\n    //   razon: 'string',\n    //   resultado: 'string'\n    // }\n  ],\n  restricciones_activas: [\n    'No repetir temas de las ultimas 2 semanas',\n    'Alternar entre contenido educativo y promocional',\n    'Maximo 2 posts promocionales por semana'\n  ],\n  calendario_editorial: {\n    lunes: 'educativo',\n    martes: 'tendencia_industria',\n    miercoles: 'caso_exito_o_testimonio',\n    jueves: 'detras_de_camaras_o_cultura',\n    viernes: 'tip_o_hack',\n    sabado: 'entretenimiento_o_meme_profesional',\n    domingo: 'reflexion_o_inspiracion'\n  }\n};\n\n// Merge con datos de scraping que vienen del input\nconst scrapedData = $input.first().json;\n\nreturn [{\n  json: {\n    context_graph: contextGraph,\n    scraped_data: scrapedData\n  }\n}];"
+      },
+      "id": "context-graph-001",
+      "name": "Cargar Context Graph",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1440, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// FASE 2B: CARGAR RAG (Catalogo de Productos)\n// ============================================\n// El RAG contiene los documentos de conocimiento:\n// - Catalogo de productos/servicios\n// - Guia de marca y estilo\n// - FAQ y mensajes clave\n// - Propuesta de valor\n//\n// IMPORTANTE: El Context Graph ya fue procesado\n// antes de llegar aqui, asi el RAG tiene contexto\n// de lo que ya se ha hecho.\n\nconst input = $input.first().json;\nconst contextGraph = input.context_graph;\nconst scrapedData = input.scraped_data;\n\n// ============================================\n// CONFIGURAR TU RAG AQUI\n// ============================================\nconst ragDocuments = {\n  catalogo_productos: [\n    // Reemplazar con tus productos reales\n    // En produccion: conectar a Supabase Vector Store,\n    // Pinecone, o Qdrant\n    {\n      id: 'prod-001',\n      nombre: 'Producto Ejemplo',\n      categoria: 'Software',\n      descripcion: 'Descripcion del producto',\n      beneficios: ['beneficio 1', 'beneficio 2'],\n      precio_rango: 'premium',\n      publico_objetivo: 'empresas medianas',\n      diferenciadores: ['diferenciador 1'],\n      keywords_seo: ['keyword1', 'keyword2']\n    }\n  ],\n  guia_marca: {\n    mision: 'Tu mision aqui',\n    vision: 'Tu vision aqui',\n    valores: ['innovacion', 'confianza', 'excelencia'],\n    propuesta_valor: 'Tu propuesta de valor unica',\n    tono_comunicacion: 'Profesional, cercano, experto',\n    mensajes_clave: [\n      'Mensaje clave 1',\n      'Mensaje clave 2'\n    ],\n    do_list: [\n      'Usar datos y estadisticas',\n      'Incluir call-to-action claro',\n      'Usar storytelling cuando sea posible'\n    ],\n    dont_list: [\n      'No hablar mal de competidores',\n      'No hacer promesas exageradas',\n      'No usar jerga excesiva'\n    ]\n  },\n  pilares_contenido: [\n    {\n      pilar: 'Educacion',\n      porcentaje: 40,\n      ejemplos: ['tutoriales', 'tips', 'how-to']\n    },\n    {\n      pilar: 'Inspiracion',\n      porcentaje: 20,\n      ejemplos: ['casos de exito', 'testimonios']\n    },\n    {\n      pilar: 'Entretenimiento',\n      porcentaje: 20,\n      ejemplos: ['memes profesionales', 'tendencias']\n    },\n    {\n      pilar: 'Promocion',\n      porcentaje: 20,\n      ejemplos: ['lanzamientos', 'ofertas', 'demos']\n    }\n  ]\n};\n\nreturn [{\n  json: {\n    context_graph: contextGraph,\n    scraped_data: scrapedData,\n    rag_documents: ragDocuments\n  }\n}];"
+      },
+      "id": "rag-001",
+      "name": "Cargar RAG Catalogo y Marca",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1680, 300]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "options": {
+          "temperature": 0.7,
+          "maxTokens": 4000
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "Eres un estratega de contenido digital experto. Tu trabajo es analizar tendencias del mercado y crear un plan de contenido semanal.\n\nREGLAS ESTRICTAS (GUARDRAILS):\n1. SOLO puedes recomendar contenido basado en datos reales del scraping proporcionado.\n2. NUNCA inventes estadisticas, datos o citas que no esten en los datos de entrada.\n3. Si no hay suficientes datos sobre un tema, indica explicitamente 'DATOS INSUFICIENTES' y sugiere una alternativa.\n4. Cada pieza de contenido DEBE estar vinculada a al menos una fuente del scraping.\n5. Respeta SIEMPRE el calendario editorial del Context Graph.\n6. NO repitas temas que aparezcan en el historial de las ultimas 2 semanas.\n7. Cada post debe tener un 'confidence_score' de 0-100 basado en la calidad de los datos fuente.\n8. Si el confidence_score es menor a 60, marca el post como 'REQUIERE_REVISION_HUMANA'.\n\nFORMATO DE SALIDA OBLIGATORIO (JSON):\n{\n  \"plan_semanal\": [\n    {\n      \"dia\": \"lunes\",\n      \"fecha\": \"YYYY-MM-DD\",\n      \"plataforma\": \"linkedin|instagram|twitter\",\n      \"tipo_contenido\": \"carousel|single_image|video_script|text_only\",\n      \"pilar\": \"educacion|inspiracion|entretenimiento|promocion\",\n      \"tema\": \"titulo del tema\",\n      \"angulo\": \"perspectiva especifica\",\n      \"fuentes_datos\": [\"URL o referencia del dato usado\"],\n      \"confidence_score\": 85,\n      \"requiere_revision\": false,\n      \"hashtags\": [\"#tag1\", \"#tag2\"],\n      \"hook\": \"Primera linea que captura atencion\",\n      \"estructura_contenido\": {\n        \"slides\": [\n          {\n            \"numero\": 1,\n            \"tipo\": \"cover|content|cta\",\n            \"titulo\": \"texto titulo\",\n            \"cuerpo\": \"texto cuerpo\",\n            \"nota_visual\": \"descripcion de lo que debe ir visualmente\"\n          }\n        ]\n      },\n      \"copy_caption\": \"Texto del caption/descripcion del post\",\n      \"call_to_action\": \"Accion que queremos del usuario\",\n      \"notas_video\": \"Solo si tipo es video_script - instrucciones de produccion\"\n    }\n  ],\n  \"resumen_tendencias\": {\n    \"tendencias_detectadas\": [\"tendencia 1\", \"tendencia 2\"],\n    \"oportunidades\": [\"oportunidad 1\"],\n    \"amenazas\": [\"riesgo a monitorear\"]\n  },\n  \"metricas_plan\": {\n    \"posts_totales\": 7,\n    \"posts_alta_confianza\": 5,\n    \"posts_requieren_revision\": 2,\n    \"distribucion_pilares\": {}\n  }\n}"
+            },
+            {
+              "role": "user",
+              "content": "=Analiza los siguientes datos y genera el plan de contenido semanal.\n\n--- CONTEXT GRAPH (Memoria Historica) ---\n{{ JSON.stringify($json.context_graph, null, 2) }}\n\n--- DATOS DE TENDENCIAS (Scraping) ---\n{{ JSON.stringify($json.scraped_data, null, 2) }}\n\n--- RAG (Catalogo y Guia de Marca) ---\n{{ JSON.stringify($json.rag_documents, null, 2) }}\n\n--- INSTRUCCIONES ---\nGenera exactamente 7 piezas de contenido (una por dia).\nAsegurate de que cada pieza tenga su estructura completa de slides si es carousel.\nPara videos, incluye un guion basico con timestamps.\nRespeta el calendario editorial y los pilares de contenido."
+            }
+          ]
+        }
+      },
+      "id": "ai-strategist-001",
+      "name": "AI Estratega de Contenido",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.8,
+      "position": [1920, 300],
+      "credentials": {
+        "openAiApi": {
+          "id": "CONFIGURAR_OPENAI",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// FASE 3: GUARDRAILS - Validacion Anti-Alucinaciones\n// ============================================\nconst aiResponse = $input.first().json;\nlet planSemanal;\n\ntry {\n  // Intentar parsear la respuesta del AI\n  const content = aiResponse.choices?.[0]?.message?.content \n    || aiResponse.message?.content \n    || aiResponse.text \n    || JSON.stringify(aiResponse);\n  \n  // Extraer JSON del contenido\n  const jsonMatch = content.match(/\\{[\\s\\S]*\\}/);\n  if (!jsonMatch) {\n    throw new Error('No se encontro JSON valido en la respuesta del AI');\n  }\n  planSemanal = JSON.parse(jsonMatch[0]);\n} catch (e) {\n  return [{\n    json: {\n      error: true,\n      message: 'GUARDRAIL: No se pudo parsear la respuesta del AI',\n      raw_response: JSON.stringify(aiResponse).substring(0, 1000),\n      action: 'RETRY_OR_MANUAL_REVIEW'\n    }\n  }];\n}\n\n// ============================================\n// VALIDACIONES DE GUARDRAILS\n// ============================================\nconst guardrailResults = {\n  passed: true,\n  warnings: [],\n  errors: [],\n  posts_aprobados: [],\n  posts_rechazados: []\n};\n\nconst posts = planSemanal.plan_semanal || [];\n\nfor (const post of posts) {\n  const issues = [];\n  \n  // Guardrail 1: Verificar confidence score\n  if (!post.confidence_score || post.confidence_score < 40) {\n    issues.push(`Confidence score muy bajo: ${post.confidence_score}`);\n  }\n  \n  // Guardrail 2: Verificar que tiene fuentes\n  if (!post.fuentes_datos || post.fuentes_datos.length === 0) {\n    issues.push('No tiene fuentes de datos vinculadas - posible alucinacion');\n  }\n  \n  // Guardrail 3: Verificar estructura completa\n  if (!post.tema || !post.copy_caption || !post.hook) {\n    issues.push('Estructura incompleta: faltan campos obligatorios');\n  }\n  \n  // Guardrail 4: Verificar que el carousel tiene slides\n  if (post.tipo_contenido === 'carousel') {\n    const slides = post.estructura_contenido?.slides || [];\n    if (slides.length < 3) {\n      issues.push(`Carousel con solo ${slides.length} slides (minimo 3)`);\n    }\n    if (slides.length > 10) {\n      issues.push(`Carousel con ${slides.length} slides (maximo 10)`);\n    }\n  }\n  \n  // Guardrail 5: Verificar longitud del copy\n  if (post.copy_caption && post.copy_caption.length > 3000) {\n    issues.push('Caption excede 3000 caracteres');\n  }\n  \n  // Guardrail 6: Verificar palabras prohibidas\n  const forbidden = ['barato', 'gratis']; // Agregar mas segun marca\n  const fullText = JSON.stringify(post).toLowerCase();\n  for (const word of forbidden) {\n    if (fullText.includes(word.toLowerCase())) {\n      issues.push(`Contiene palabra prohibida: \"${word}\"`);\n    }\n  }\n  \n  if (issues.length > 0) {\n    post.guardrail_status = 'REQUIERE_REVISION';\n    post.guardrail_issues = issues;\n    guardrailResults.posts_rechazados.push(post);\n    guardrailResults.warnings.push(...issues);\n  } else {\n    post.guardrail_status = 'APROBADO';\n    post.guardrail_issues = [];\n    guardrailResults.posts_aprobados.push(post);\n  }\n}\n\nif (guardrailResults.posts_aprobados.length === 0) {\n  guardrailResults.passed = false;\n  guardrailResults.errors.push('CRITICO: Ningun post paso los guardrails');\n}\n\nguardrailResults.resumen = {\n  total_posts: posts.length,\n  aprobados: guardrailResults.posts_aprobados.length,\n  requieren_revision: guardrailResults.posts_rechazados.length,\n  tasa_aprobacion: Math.round((guardrailResults.posts_aprobados.length / Math.max(posts.length, 1)) * 100)\n};\n\n// Pasar tambien el plan original y las tendencias\nguardrailResults.plan_original = planSemanal;\n\nreturn [{ json: guardrailResults }];"
+      },
+      "id": "guardrails-001",
+      "name": "Guardrails Anti-Alucinaciones",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2160, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.passed }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "if-guardrails-001",
+      "name": "Guardrails OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2400, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// FASE 4: PREPARAR PROMPTS DE IMAGENES\n// ============================================\n// Genera un prompt de imagen para cada post aprobado\n\nconst guardrailData = $input.first().json;\nconst postsAprobados = guardrailData.posts_aprobados || [];\nconst planOriginal = guardrailData.plan_original || {};\n\nconst imagePrompts = [];\n\nfor (const post of postsAprobados) {\n  if (post.tipo_contenido === 'carousel') {\n    // Generar prompt para cada slide del carousel\n    const slides = post.estructura_contenido?.slides || [];\n    for (const slide of slides) {\n      imagePrompts.push({\n        post_dia: post.dia,\n        post_tema: post.tema,\n        slide_numero: slide.numero,\n        slide_tipo: slide.tipo,\n        image_prompt: `Crear una imagen profesional para un carousel de ${post.plataforma}. ` +\n          `Estilo: minimalista, limpio, corporativo. ` +\n          `Slide ${slide.numero} (${slide.tipo}): ` +\n          `Titulo: \"${slide.titulo}\". ` +\n          `Contenido visual: ${slide.nota_visual || 'diseno limpio con texto legible'}. ` +\n          `Colores principales: azul oscuro (#1a1a2e) con acento rojo (#e94560). ` +\n          `Formato: 1080x1080px cuadrado. ` +\n          `NO incluir texto en la imagen, solo elementos visuales y graficos.`,\n        dimensions: '1024x1024',\n        platform: post.plataforma\n      });\n    }\n  } else if (post.tipo_contenido === 'single_image') {\n    imagePrompts.push({\n      post_dia: post.dia,\n      post_tema: post.tema,\n      slide_numero: 1,\n      slide_tipo: 'single',\n      image_prompt: `Crear una imagen profesional para ${post.plataforma}. ` +\n        `Estilo: minimalista, moderno, corporativo. ` +\n        `Tema: \"${post.tema}\". ` +\n        `Hook visual que represente: ${post.hook}. ` +\n        `Colores: azul oscuro (#1a1a2e) con acento rojo (#e94560). ` +\n        `Formato: ${post.plataforma === 'instagram' ? '1080x1080px' : '1200x627px'}. ` +\n        `NO incluir texto, solo elementos visuales.`,\n      dimensions: post.plataforma === 'instagram' ? '1024x1024' : '1792x1024',\n      platform: post.plataforma\n    });\n  }\n  // Para video_script no se genera imagen, se pasan instrucciones\n}\n\nreturn imagePrompts.map(p => ({ json: p }));"
+      },
+      "id": "image-prompts-001",
+      "name": "Preparar Prompts Imagenes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2640, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/images/generations",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ \"model\": \"gpt-image-1\", \"prompt\": $json.image_prompt, \"n\": 1, \"size\": $json.dimensions || \"1024x1024\", \"quality\": \"high\" }) }}",
+        "options": {
+          "timeout": 120000,
+          "batching": {
+            "batch": {
+              "batchSize": 3,
+              "batchInterval": 5000
+            }
+          }
+        }
+      },
+      "id": "openai-images-001",
+      "name": "OpenAI Generar Imagenes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2880, 200],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "CONFIGURAR_OPENAI_BEARER",
+          "name": "OpenAI Bearer Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// ALTERNATIVA: Usar Gemini para imagenes (GRATIS)\n// ============================================\n// Descomentar este nodo y desconectar OpenAI\n// si prefieres usar Gemini para generar imagenes.\n//\n// const prompt = $input.first().json.image_prompt;\n// \n// // Llamar a Gemini via API\n// // URL: https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent\n// // Body: { contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseModalities: ['IMAGE'] } }\n//\n// Nota: Gemini es mas rapido pero menos preciso segun la recomendacion.\n// OpenAI gpt-image-1 es mas lento pero mas preciso.\n\nreturn $input.all();"
+      },
+      "id": "gemini-alt-001",
+      "name": "[ALT] Gemini Imagenes (Gratis)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2880, 500],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// FASE 5: COMPILAR OUTPUT FINAL\n// ============================================\nconst items = $input.all();\n\nconst output = {\n  generated_at: new Date().toISOString(),\n  images: items.map((item, idx) => ({\n    index: idx,\n    post_dia: item.json.post_dia || '',\n    post_tema: item.json.post_tema || '',\n    slide_numero: item.json.slide_numero || 1,\n    image_url: item.json.data?.[0]?.url || item.json.data?.[0]?.b64_json || 'NO_GENERATED',\n    revised_prompt: item.json.data?.[0]?.revised_prompt || ''\n  }))\n};\n\nreturn [{ json: output }];"
+      },
+      "id": "compile-images-001",
+      "name": "Compilar Imagenes Generadas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3120, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// FASE 6: ENSAMBLAR PAQUETE FINAL DE CONTENIDO\n// ============================================\n// Este nodo combina el plan de contenido con las imagenes\n// y genera el output final en formato JSON/XML\n\n// Nota: En produccion, este nodo recibe el merge de:\n// 1. Posts aprobados por guardrails\n// 2. Imagenes generadas\n\nconst input = $input.first().json;\n\nconst finalPackage = {\n  metadata: {\n    generated_at: new Date().toISOString(),\n    workflow_version: '1.0',\n    status: 'READY_FOR_REVIEW'\n  },\n  contenido_semanal: [],\n  instrucciones_video: [],\n  context_graph_update: {\n    // Datos para actualizar el Context Graph\n    // en la proxima ejecucion\n    nuevos_temas_usados: [],\n    fecha_generacion: new Date().toISOString()\n  }\n};\n\n// El output completo se guarda para revision\nreturn [{ json: finalPackage }];"
+      },
+      "id": "final-assembly-001",
+      "name": "Ensamblar Paquete Final",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3360, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// FASE 7: ACTUALIZAR CONTEXT GRAPH\n// ============================================\n// Guarda el contenido generado en el Context Graph\n// para que la proxima ejecucion sepa que ya se hizo\n//\n// En produccion, esto debe escribir a:\n// - Un archivo JSON en disco/S3\n// - Una base de datos (Supabase, Postgres)\n// - Google Sheets\n\nconst finalPackage = $input.first().json;\n\nconst contextGraphUpdate = {\n  last_execution: new Date().toISOString(),\n  posts_generados: finalPackage.contenido_semanal || [],\n  temas_usados: finalPackage.context_graph_update?.nuevos_temas_usados || [],\n  status: 'completed'\n};\n\n// TODO: Conectar a tu sistema de almacenamiento\n// Opciones:\n// 1. Supabase: Usar nodo Supabase para insertar\n// 2. Google Sheets: Usar nodo Google Sheets para append\n// 3. Archivo: Usar nodo Write File\n// 4. HTTP: POST a tu API\n\nreturn [{ json: contextGraphUpdate }];"
+      },
+      "id": "update-context-001",
+      "name": "Actualizar Context Graph",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3600, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// NOTIFICACION: Guardrails fallaron\n// ============================================\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    alert: 'GUARDRAILS_FAILED',\n    message: 'El contenido generado no paso las validaciones.',\n    errors: data.errors || [],\n    warnings: data.warnings || [],\n    resumen: data.resumen || {},\n    action_required: 'Revisar manualmente o re-ejecutar el workflow',\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "guardrails-fail-001",
+      "name": "Alerta Guardrails Fallidos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2640, 500]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "notify-001",
+              "name": "notification",
+              "value": "=Contenido semanal generado exitosamente. {{ $json.metadata?.status || 'COMPLETADO' }}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "notify-success-001",
+      "name": "Notificar Exito",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [3840, 300]
+    }
+  ],
+  "connections": {
+    "Trigger Dominical 8PM": {
+      "main": [
+        [
+          {
+            "node": "Configuracion de Marca",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configuracion de Marca": {
+      "main": [
+        [
+          {
+            "node": "Apify Reddit Scraper",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Apify Scraper Influencers",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "NewsAPI Noticias Industria",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apify Reddit Scraper": {
+      "main": [
+        [
+          {
+            "node": "Obtener Resultados Reddit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apify Scraper Influencers": {
+      "main": [
+        [
+          {
+            "node": "Obtener Resultados Influencers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Obtener Resultados Reddit": {
+      "main": [
+        [
+          {
+            "node": "Merge Datos Scrapers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Obtener Resultados Influencers": {
+      "main": [
+        [
+          {
+            "node": "Merge Datos Scrapers",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "NewsAPI Noticias Industria": {
+      "main": [
+        [
+          {
+            "node": "Merge Datos Scrapers",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Merge Datos Scrapers": {
+      "main": [
+        [
+          {
+            "node": "Consolidar Datos Scraping",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consolidar Datos Scraping": {
+      "main": [
+        [
+          {
+            "node": "Cargar Context Graph",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cargar Context Graph": {
+      "main": [
+        [
+          {
+            "node": "Cargar RAG Catalogo y Marca",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cargar RAG Catalogo y Marca": {
+      "main": [
+        [
+          {
+            "node": "AI Estratega de Contenido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Estratega de Contenido": {
+      "main": [
+        [
+          {
+            "node": "Guardrails Anti-Alucinaciones",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardrails Anti-Alucinaciones": {
+      "main": [
+        [
+          {
+            "node": "Guardrails OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardrails OK?": {
+      "main": [
+        [
+          {
+            "node": "Preparar Prompts Imagenes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alerta Guardrails Fallidos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Prompts Imagenes": {
+      "main": [
+        [
+          {
+            "node": "OpenAI Generar Imagenes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Generar Imagenes": {
+      "main": [
+        [
+          {
+            "node": "Compilar Imagenes Generadas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compilar Imagenes Generadas": {
+      "main": [
+        [
+          {
+            "node": "Ensamblar Paquete Final",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ensamblar Paquete Final": {
+      "main": [
+        [
+          {
+            "node": "Actualizar Context Graph",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Actualizar Context Graph": {
+      "main": [
+        [
+          {
+            "node": "Notificar Exito",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "content-automation"
+    },
+    {
+      "name": "ai-agent"
+    }
+  ]
+}

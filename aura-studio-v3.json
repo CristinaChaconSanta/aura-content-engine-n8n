@@ -1,0 +1,689 @@
+{
+  "name": "Aura Studio v3 - Template Rendering Pipeline",
+  "nodes": [
+    {
+      "parameters": { "content": "# CAPA 1: INGESTA\n4x/semana: Lun, Mie, Jue, Sab 8AM\nFuentes RSS: MIT, Wired, CIO, Sloan" },
+      "id": "s1", "name": "Nota Ingesta", "type": "n8n-nodes-base.stickyNote", "typeVersion": 1, "position": [-60, -140]
+    },
+    {
+      "parameters": { "content": "# CAPA 2: CEREBRO\nContext Graph PRIMERO (memoria) → RAG DESPUES (marca)\nAgente Editor: genera JSON desacoplado\n- Textos por capas (title/body/footer)\n- Prompts de fondo SIN texto\n- Settings de diseno (template, colores)" },
+      "id": "s2", "name": "Nota Cerebro", "type": "n8n-nodes-base.stickyNote", "typeVersion": 1, "position": [1140, -140]
+    },
+    {
+      "parameters": { "content": "# CAPA 3: PRODUCCION\n1. Guardrails validan schema\n2. Generar fondos (DALL-E, solo imagen sin texto)\n3. Renderizar con plantilla (Bannerbear/Creatomate)\n4. Ensamblar: fondo + texto + logo = slide final\n5. Enviar a Telegram para aprobacion" },
+      "id": "s3", "name": "Nota Produccion", "type": "n8n-nodes-base.stickyNote", "typeVersion": 1, "position": [2580, -140]
+    },
+    {
+      "parameters": { "content": "# APROBACION HUMANA\nAPROBAR → publicar\nRECHAZAR → buffer recap\nREGENERAR → nueva version" },
+      "id": "s4", "name": "Nota Aprobacion", "type": "n8n-nodes-base.stickyNote", "typeVersion": 1, "position": [-60, 520]
+    },
+    {
+      "parameters": { "content": "# RECAP SEMANAL (Viernes 5PM)\nRecupera descartes de la semana.\nGenera carrusel resumen.\nLimpia memoria." },
+      "id": "s5", "name": "Nota Recap", "type": "n8n-nodes-base.stickyNote", "typeVersion": 1, "position": [-60, 1080]
+    },
+
+
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "triggerAtDay": 1, "triggerAtHour": 8 },
+            { "triggerAtDay": 3, "triggerAtHour": 8 },
+            { "triggerAtDay": 4, "triggerAtHour": 8 },
+            { "triggerAtDay": 6, "triggerAtHour": 8 }
+          ]
+        }
+      },
+      "id": "trigger-content",
+      "name": "Trigger 4x Semana",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 60]
+    },
+    {
+      "parameters": {
+        "jsCode": "const fuentes = [\n  { url: 'https://news.mit.edu/topic/mitartificial-intelligence2-rss.xml', source: 'MIT News AI' },\n  { url: 'https://sloanreview.mit.edu/feed/', source: 'MIT Sloan Review' },\n  { url: 'https://www.cio.com/feed/', source: 'CIO.com' },\n  { url: 'https://www.wired.com/feed/tag/ai/latest/rss', source: 'Wired AI' },\n  { url: 'https://www.wired.com/feed/category/business/latest/rss', source: 'Wired Business' },\n  { url: 'https://www.wired.com/feed/category/science/latest/rss', source: 'Wired Science' }\n];\nreturn fuentes.map(f => ({ json: f }));"
+      },
+      "id": "rss-sources",
+      "name": "1. Fuentes RSS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [260, 0]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.url }}",
+        "options": {
+          "response": { "response": { "responseFormat": "text" } },
+          "timeout": 15000
+        }
+      },
+      "id": "fetch-rss",
+      "name": "2. Fetch RSS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [520, 0],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parsear XML RSS a JSON limpio\nconst items = $input.all();\nconst articulos = [];\n\nfor (const item of items) {\n  const xml = typeof item.json.data === 'string' ? item.json.data : '';\n  const source = item.json.source || '';\n  if (!xml) continue;\n\n  const regex = /<item[^>]*>([\\s\\S]*?)<\\/item>/gi;\n  let match;\n  while ((match = regex.exec(xml)) !== null) {\n    const block = match[1];\n    const tag = (name) => {\n      const m = block.match(new RegExp('<' + name + '[^>]*>([\\\\s\\\\S]*?)</' + name + '>', 'i'));\n      if (!m) return '';\n      return m[1].replace(/<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>/g, '$1').replace(/<[^>]+>/g, '').trim();\n    };\n    const title = tag('title');\n    const link = tag('link') || tag('guid');\n    if (title && link) {\n      articulos.push({ title, link, description: tag('description').substring(0, 600), pubDate: tag('pubDate'), source });\n    }\n  }\n}\n\n// Deduplicar por URL\nconst seen = new Set();\nconst unicos = articulos.filter(a => { if (seen.has(a.link)) return false; seen.add(a.link); return true; });\n\nreturn [{ json: { articulos: unicos, total: unicos.length } }];"
+      },
+      "id": "parse-rss",
+      "name": "3. Parsear RSS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [780, 0]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": { "value": "SPREADSHEET_ID", "__rl": true },
+        "sheetName": { "value": "memoria", "__rl": true },
+        "options": {}
+      },
+      "id": "read-context",
+      "name": "4. Leer Context Graph",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [520, 160],
+      "credentials": { "googleSheetsOAuth2Api": { "id": "CONFIG", "name": "Google Sheets" } }
+    },
+    {
+      "parameters": { "mode": "combine", "combineBy": "combineAll", "options": {} },
+      "id": "merge-data",
+      "name": "Merge",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [1040, 60]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ========================================\n// CAPA 2: CONTEXT GRAPH → RAG\n// ========================================\n// ORDEN: Context Graph PRIMERO, RAG DESPUES\n// El Context Graph da memoria (que se publico)\n// El RAG da identidad (como debe verse)\n// ========================================\n\nconst items = $input.all();\nlet articulosNuevos = [];\nconst topicosPublicados = new Set();\n\nfor (const item of items) {\n  if (item.json.articulos) {\n    articulosNuevos = item.json.articulos;\n  } else if (item.json.topic) {\n    topicosPublicados.add(item.json.topic?.toLowerCase().trim());\n  }\n}\n\n// CONTEXT GRAPH: filtrar lo ya publicado\nconst filtrados = articulosNuevos.filter(a => {\n  const t = a.title.toLowerCase();\n  for (const pub of topicosPublicados) {\n    if (pub && t.includes(pub)) return false;\n  }\n  return true;\n});\n\nif (filtrados.length === 0) {\n  return [{ json: { _sin_noticias: true } }];\n}\n\n// RAG: Identidad de marca\nconst RAG = {\n  marca: 'Aura Studio',\n  filosofia: 'Work fast, live slow',\n  tono: 'Reflexivo, sofisticado, humano, calido. Sin relleno.',\n  prohibido: 'Tech bros, vendedores agresivos, emojis excesivos, clickbait',\n  estetica: {\n    fondos: 'Fotografia cinematografica editorial, naturaleza latinoamericana, golden hour o neblina',\n    paleta_hex: { verde_profundo: '#1B4332', crema: '#F5F0E8', beige: '#D4A574', dorado: '#C9A96E', oscuro: '#1A1A2E' },\n    prohibido_visual: 'Robots, circuitos, neon, cyberpunk, oficinas genericas, texto en imagenes generadas'\n  },\n  tipografia: { titulos: 'Kaneda Gothic Bold', cuerpo: 'Inter Regular' },\n  logo: { posicion: 'bottom_right', variantes: { claro: 'logo_cream.png', oscuro: 'logo_green.png' } },\n  cta_permitidos: ['comenta', 'guarda', 'comparte'],\n  formato: '5-6 slides, cada slide es: titulo + cuerpo + footer + fondo separado'\n};\n\nreturn [{ json: {\n  articulos: filtrados.slice(0, 10),\n  context_graph: { publicados: Array.from(topicosPublicados), total: topicosPublicados.size },\n  rag: RAG\n}}];"
+      },
+      "id": "filter-rag",
+      "name": "5. Filtrar + RAG",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1300, 60]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [{ "leftValue": "={{ $json._sin_noticias }}", "rightValue": true, "operator": { "type": "boolean", "operation": "notEquals" } }]
+        }
+      },
+      "id": "if-news",
+      "name": "Hay Noticias?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1560, 60]
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "TU_CHAT_ID",
+        "text": "📭 Sin noticias nuevas hoy. Fuentes ya procesadas.",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tg-no-news",
+      "name": "TG Sin Noticias",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1820, 200],
+      "credentials": { "telegramApi": { "id": "CONFIG", "name": "Telegram Bot" } }
+    },
+
+
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "### ROL\nEres AURA, Editora en Jefe de Aura Studio.\nFilosofia: \"Work fast, live slow\".\nAudiencia: Directivos y lideres tech en Latinoamerica.\n\n### MEMORIA (CONTEXT GRAPH)\nLEE los topicos publicados. NO repitas temas de los ultimos 7 dias.\n\n### IDENTIDAD (RAG)\nTono: Reflexivo, sofisticado, humano, calido. Sin relleno.\nNO: Tech bros, vendedores agresivos, clickbait, emojis excesivos.\n\n### ARQUITECTURA DESACOPLADA\nIMPORTANTE: Tu NO generas imagenes completas. Tu generas:\n1. TEXTOS por capas separadas (titulo, cuerpo, footer)\n2. PROMPTS de fondo visual (SOLO imagen de fondo, SIN texto, SIN tipografia)\n3. SETTINGS de diseno (template, colores)\n\nLa imagen final se ensambla despues con una plantilla que ya tiene la tipografia Kaneda Gothic, el logo de Aura Studio y los colores de marca.\n\n### REGLAS PARA BACKGROUND PROMPTS\nSIEMPRE incluir: \"cinematic editorial photography, no text, no typography, no letters\"\nSIEMPRE incluir: elemento de naturaleza latinoamericana (varia entre: frailejones colombianos, monstera, orquideas, cafe, cacao, uchuvas, paisajes andinos, selva, costa caribe, plataneras)\nSIEMPRE incluir: tipo de luz (golden hour, morning mist, mountain fog, soft daylight)\nSIEMPRE incluir: \"deep greens, cream, beige, subtle gold tones\"\nNUNCA incluir: robots, circuits, neon, cyberpunk, generic office, text, typography, letters, words\n\n### TAREA\nAnaliza las noticias. Selecciona la mejor. Genera carrusel de 5-6 slides.\n\n### OUTPUT (JSON estricto, sin markdown):\n{\n  \"meta\": {\n    \"topic\": \"Titulo corto 3-5 palabras\",\n    \"source\": \"Nombre fuente\",\n    \"source_url\": \"URL\",\n    \"urgency\": \"High/Medium/Low\"\n  },\n  \"design_settings\": {\n    \"template_id\": \"aura_carousel_v1\",\n    \"primary_color\": \"#1B4332\",\n    \"accent_color\": \"#D4A574\",\n    \"background_color\": \"#1A1A2E\",\n    \"font_title\": \"Kaneda Gothic Bold\",\n    \"font_body\": \"Inter Regular\",\n    \"logo_variant\": \"cream\",\n    \"logo_position\": \"bottom_right\"\n  },\n  \"slides\": [\n    {\n      \"number\": 1,\n      \"type\": \"hook\",\n      \"layer_title_text\": \"PREGUNTA O DATO IMPACTANTE\",\n      \"layer_body_text\": \"\",\n      \"layer_footer_text\": \"AURA STUDIO | 2026\",\n      \"background_image_prompt\": \"Cinematic editorial photography of [escena natural especifica], [tipo de luz], deep greens cream beige gold tones, no text, no typography, no letters, 1080x1080, 8k\"\n    },\n    {\n      \"number\": 2,\n      \"type\": \"context\",\n      \"layer_title_text\": \"QUE ESTA PASANDO\",\n      \"layer_body_text\": \"Explicacion en max 25 palabras.\",\n      \"layer_footer_text\": \"AURA STUDIO\",\n      \"background_image_prompt\": \"...\"\n    },\n    {\n      \"number\": 3,\n      \"type\": \"impact\",\n      \"layer_title_text\": \"POR QUE IMPORTA\",\n      \"layer_body_text\": \"Impacto en el negocio max 25 palabras.\",\n      \"layer_footer_text\": \"AURA STUDIO\",\n      \"background_image_prompt\": \"...\"\n    },\n    {\n      \"number\": 4,\n      \"type\": \"data\",\n      \"layer_title_text\": \"LOS DATOS\",\n      \"layer_body_text\": \"Estadistica o caso real max 25 palabras.\",\n      \"layer_footer_text\": \"AURA STUDIO\",\n      \"background_image_prompt\": \"...\"\n    },\n    {\n      \"number\": 5,\n      \"type\": \"future\",\n      \"layer_title_text\": \"QUE SIGUE\",\n      \"layer_body_text\": \"Accion o prediccion max 25 palabras.\",\n      \"layer_footer_text\": \"AURA STUDIO\",\n      \"background_image_prompt\": \"...\"\n    }\n  ],\n  \"caption\": \"Caption para IG/LinkedIn max 250 chars, tono reflexivo\",\n  \"hashtags\": [\"#AuraStudio\", \"#WorkFastLiveSlow\", \"#tag3\", \"#tag4\", \"#tag5\"],\n  \"cta\": \"comenta\",\n  \"rejected_articles\": [\n    {\"title\": \"...\", \"url\": \"...\", \"reason\": \"...\"}\n  ]\n}"
+            },
+            {
+              "role": "user",
+              "content": "=CONTEXT GRAPH (ya publicado):\n{{ JSON.stringify($json.context_graph) }}\n\nNOTICIAS DISPONIBLES:\n{{ JSON.stringify($json.articulos) }}\n\nIDENTIDAD DE MARCA:\n{{ JSON.stringify($json.rag) }}\n\nSelecciona la mejor noticia y genera el carrusel desacoplado (textos + fondos separados). SOLO JSON valido."
+            }
+          ]
+        },
+        "options": { "temperature": 0.7, "maxTokens": 4000 }
+      },
+      "id": "ai-editor",
+      "name": "6. Agente Editor",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.8,
+      "position": [1820, -20],
+      "credentials": { "openAiApi": { "id": "CONFIG", "name": "OpenAI" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ========================================\n// GUARDRAILS v3: Validar schema desacoplado\n// ========================================\n\nconst aiRaw = $input.first().json;\nlet carrusel;\n\ntry {\n  const content = aiRaw.choices?.[0]?.message?.content || aiRaw.message?.content || aiRaw.text || '';\n  const m = content.match(/\\{[\\s\\S]*\\}/);\n  if (!m) throw new Error('Sin JSON');\n  carrusel = JSON.parse(m[0]);\n} catch (e) {\n  return [{ json: { _error: true, msg: 'Error parseando AI: ' + e.message } }];\n}\n\nconst problemas = [];\nconst slides = carrusel.slides || [];\n\n// G1: 5-6 slides\nif (slides.length < 5) problemas.push('Solo ' + slides.length + ' slides (minimo 5)');\nif (slides.length > 6) { carrusel.slides = slides.slice(0, 6); problemas.push('Recortado a 6 slides'); }\n\n// G2: Cada slide debe tener las 3 capas de texto\nfor (const s of carrusel.slides) {\n  if (!s.layer_title_text) problemas.push('Slide ' + s.number + ': falta layer_title_text');\n  if (s.layer_title_text && s.layer_title_text.split(/\\s+/).length > 10) {\n    problemas.push('Slide ' + s.number + ': titulo excede 10 palabras');\n  }\n  if (s.layer_body_text && s.layer_body_text.split(/\\s+/).length > 30) {\n    problemas.push('Slide ' + s.number + ': body excede 30 palabras');\n  }\n  if (!s.layer_footer_text) s.layer_footer_text = 'AURA STUDIO';\n}\n\n// G3: Background prompts NO deben contener texto/tipografia\nconst textoProhibido = ['text overlay', 'typography', 'letters', 'words', 'headline', 'title text'];\nconst visualProhibido = ['robot', 'circuit', 'neon', 'cyberpunk', 'matrix', 'motherboard', 'generic office'];\n\nfor (const s of carrusel.slides) {\n  if (!s.background_image_prompt) {\n    problemas.push('Slide ' + s.number + ': falta background_image_prompt');\n    continue;\n  }\n  const lower = s.background_image_prompt.toLowerCase();\n\n  // Forzar 'no text' si no esta\n  if (!lower.includes('no text')) {\n    s.background_image_prompt += ', no text, no typography, no letters';\n    problemas.push('Slide ' + s.number + ': agregado \"no text\" al prompt');\n  }\n\n  // Remover estetica prohibida\n  for (const p of visualProhibido) {\n    if (lower.includes(p)) {\n      s.background_image_prompt = s.background_image_prompt.replace(new RegExp(p, 'gi'), 'tropical nature');\n      problemas.push('Slide ' + s.number + ': reemplazado \"' + p + '\"');\n    }\n  }\n}\n\n// G4: Design settings presentes\nif (!carrusel.design_settings) {\n  carrusel.design_settings = {\n    template_id: 'aura_carousel_v1',\n    primary_color: '#1B4332',\n    accent_color: '#D4A574',\n    background_color: '#1A1A2E',\n    font_title: 'Kaneda Gothic Bold',\n    font_body: 'Inter Regular',\n    logo_variant: 'cream',\n    logo_position: 'bottom_right'\n  };\n  problemas.push('design_settings ausente, aplicado default');\n}\n\n// G5: Hashtags obligatorios\nif (!carrusel.hashtags) carrusel.hashtags = [];\nif (!carrusel.hashtags.some(h => h.toLowerCase().includes('aurastudio'))) carrusel.hashtags.unshift('#AuraStudio');\nif (!carrusel.hashtags.some(h => h.toLowerCase().includes('workfastliveslow'))) carrusel.hashtags.splice(1, 0, '#WorkFastLiveSlow');\n\n// G6: CTA valido\nif (!['comenta', 'guarda', 'comparte'].includes((carrusel.cta || '').toLowerCase())) {\n  carrusel.cta = 'comenta';\n}\n\n// --- Telegram Preview ---\nlet msg = '🎨 *CARRUSEL GENERADO (v3 - Template Pipeline)*\\n\\n';\nmsg += '📰 *' + (carrusel.meta?.topic || '?') + '*\\n';\nmsg += '🔗 ' + (carrusel.meta?.source || '') + '\\n';\nmsg += '⚡ ' + (carrusel.meta?.urgency || '-') + '\\n\\n';\nmsg += '🎨 *Template:* ' + carrusel.design_settings.template_id + '\\n';\nmsg += '🎨 *Colores:* ' + carrusel.design_settings.primary_color + ' / ' + carrusel.design_settings.accent_color + '\\n\\n';\nmsg += '📑 *Slides:*\\n';\nfor (const s of carrusel.slides) {\n  msg += s.number + '. *' + s.layer_title_text + '*\\n';\n  if (s.layer_body_text) msg += '   ' + s.layer_body_text.substring(0, 60) + '\\n';\n  msg += '   🖼 _' + s.background_image_prompt.substring(0, 50) + '..._\\n';\n}\nmsg += '\\n✍️ ' + (carrusel.caption || '') + '\\n';\nmsg += '#️⃣ ' + carrusel.hashtags.join(' ') + '\\n';\n\nif (problemas.length > 0) {\n  msg += '\\n⚠️ *Guardrails:*\\n';\n  problemas.forEach(p => { msg += '  • ' + p + '\\n'; });\n}\nmsg += '\\n---\\n✅ *APROBAR* | ❌ *RECHAZAR* | 🔄 *REGENERAR*';\n\nreturn [{ json: {\n  carrusel,\n  carrusel_json: JSON.stringify(carrusel),\n  telegram_msg: msg,\n  rejected: carrusel.rejected_articles || [],\n  guardrail_issues: problemas\n}}];"
+      },
+      "id": "guardrails",
+      "name": "7. Guardrails",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2080, -20]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ========================================\n// Separar slides para generacion de fondos\n// Cada slide se convierte en un item individual\n// para que el HTTP Request genere un fondo por slide\n// ========================================\nconst data = $input.first().json;\nconst slides = data.carrusel?.slides || [];\n\nreturn slides.map(s => ({\n  json: {\n    slide_number: s.number,\n    prompt: s.background_image_prompt,\n    size: '1024x1024'\n  }\n}));"
+      },
+      "id": "split-slides",
+      "name": "8. Separar Slides",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2340, -20]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/images/generations",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'dall-e-3', prompt: $json.prompt, n: 1, size: '1024x1024', quality: 'standard' }) }}",
+        "options": {
+          "timeout": 60000,
+          "batching": { "batch": { "batchSize": 2, "batchInterval": 3000 } }
+        }
+      },
+      "id": "gen-backgrounds",
+      "name": "9. Generar Fondos (DALL-E)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2600, -20],
+      "credentials": {
+        "httpHeaderAuth": { "id": "CONFIG_OPENAI_BEARER", "name": "OpenAI Bearer" }
+      },
+      "disabled": false,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ========================================\n// Compilar fondos generados + datos del carrusel\n// Preparar payload para la API de renderizado\n// ========================================\nconst bgItems = $input.all();\nconst carruselData = $('7. Guardrails').first().json;\nconst carrusel = carruselData.carrusel;\n\n// Mapear URLs de fondo a cada slide\nconst slidesConFondo = (carrusel.slides || []).map((slide, i) => {\n  const bg = bgItems[i]?.json;\n  const bgUrl = bg?.data?.[0]?.url || bg?.data?.[0]?.b64_json || 'PENDIENTE_GENERAR';\n  return {\n    ...slide,\n    background_image_url: bgUrl\n  };\n});\n\n// Construir payloads para Bannerbear/Creatomate\nconst renderPayloads = slidesConFondo.map(s => ({\n  template: carrusel.design_settings?.template_id || 'aura_carousel_v1',\n  modifications: [\n    { name: 'title', text: s.layer_title_text, color: carrusel.design_settings?.primary_color },\n    { name: 'body', text: s.layer_body_text || '', color: null },\n    { name: 'footer', text: s.layer_footer_text || 'AURA STUDIO', color: null },\n    { name: 'background', image_url: s.background_image_url }\n  ],\n  metadata: {\n    slide_number: s.number,\n    slide_type: s.type\n  }\n}));\n\nreturn [{ json: {\n  carrusel_completo: { ...carrusel, slides: slidesConFondo },\n  render_payloads: renderPayloads,\n  carrusel_json: JSON.stringify({ ...carrusel, slides: slidesConFondo }),\n  telegram_msg: carruselData.telegram_msg,\n  rejected: carruselData.rejected\n}}];"
+      },
+      "id": "compile-render",
+      "name": "10. Compilar para Render",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2860, -20]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://sync.api.bannerbear.com/v2/images",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ template: $json.render_payloads[0].template, modifications: $json.render_payloads[0].modifications }) }}",
+        "options": { "timeout": 30000 }
+      },
+      "id": "render-template",
+      "name": "11. Render Plantilla [PLACEHOLDER]",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3120, -20],
+      "disabled": true,
+      "credentials": {
+        "httpHeaderAuth": { "id": "CONFIG_BANNERBEAR", "name": "Bannerbear API Key" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": { "value": "SPREADSHEET_ID", "__rl": true },
+        "sheetName": { "value": "memoria", "__rl": true },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "topic": "={{ $json.carrusel_completo?.meta?.topic || '' }}",
+            "date": "={{ $now.toISO() }}",
+            "source": "={{ $json.carrusel_completo?.meta?.source || '' }}",
+            "source_url": "={{ $json.carrusel_completo?.meta?.source_url || '' }}",
+            "status": "pending",
+            "angle": "={{ $json.carrusel_completo?.slides?.[0]?.layer_title_text || '' }}",
+            "carrusel_json": "={{ $json.carrusel_json }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "save-memory",
+      "name": "12. Guardar en Memoria",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [3120, 120],
+      "credentials": { "googleSheetsOAuth2Api": { "id": "CONFIG", "name": "Google Sheets" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Guardar rechazados en buffer para recap semanal\nconst data = $('10. Compilar para Render').first().json;\nconst rejected = data.rejected || [];\n\nif (rejected.length === 0) return [{ json: { _skip: true, telegram_msg: data.telegram_msg } }];\n\nreturn rejected.map(r => ({\n  json: {\n    topic: r.title || '', date: new Date().toISOString(),\n    source_url: r.url || '', status: 'rejected',\n    angle: r.reason || '', carrusel_json: ''\n  }\n}));"
+      },
+      "id": "buffer-rejected",
+      "name": "13. Buffer Rechazados",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3380, 120]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": { "value": "SPREADSHEET_ID", "__rl": true },
+        "sheetName": { "value": "memoria", "__rl": true },
+        "columns": { "mappingMode": "autoMapInputData" },
+        "options": {}
+      },
+      "id": "save-rejected",
+      "name": "14. Guardar Rechazados",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [3640, 120],
+      "credentials": { "googleSheetsOAuth2Api": { "id": "CONFIG", "name": "Google Sheets" } }
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "TU_CHAT_ID",
+        "text": "={{ $json.telegram_msg || $('10. Compilar para Render').first().json.telegram_msg || $('7. Guardrails').first().json.telegram_msg }}",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tg-send",
+      "name": "15. TG Carrusel",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [3900, 120],
+      "credentials": { "telegramApi": { "id": "CONFIG", "name": "Telegram Bot" } }
+    },
+
+
+    {
+      "parameters": { "updates": ["message"] },
+      "id": "tg-trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 700],
+      "credentials": { "telegramApi": { "id": "CONFIG", "name": "Telegram Bot" } }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            { "conditions": { "conditions": [{ "leftValue": "={{ $json.message.text.toUpperCase().trim() }}", "rightValue": "APROBAR", "operator": { "type": "string", "operation": "equals" } }] }, "renameOutput": true, "outputKey": "APROBAR" },
+            { "conditions": { "conditions": [{ "leftValue": "={{ $json.message.text.toUpperCase().trim() }}", "rightValue": "RECHAZAR", "operator": { "type": "string", "operation": "equals" } }] }, "renameOutput": true, "outputKey": "RECHAZAR" },
+            { "conditions": { "conditions": [{ "leftValue": "={{ $json.message.text.toUpperCase().trim() }}", "rightValue": "REGENERAR", "operator": { "type": "string", "operation": "equals" } }] }, "renameOutput": true, "outputKey": "REGENERAR" }
+          ]
+        },
+        "options": { "fallbackOutput": "extra" }
+      },
+      "id": "switch-cmd",
+      "name": "Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [260, 700]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": { "value": "SPREADSHEET_ID", "__rl": true },
+        "sheetName": { "value": "memoria", "__rl": true },
+        "options": {}
+      },
+      "id": "read-approve",
+      "name": "Leer (Aprobar)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [520, 600],
+      "credentials": { "googleSheetsOAuth2Api": { "id": "CONFIG", "name": "Google Sheets" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst chatId = $('Telegram Trigger').first().json.message?.chat?.id || 'TU_CHAT_ID';\nconst pendientes = items.filter(i => i.json.status === 'pending');\nconst ultimo = pendientes[pendientes.length - 1];\nif (!ultimo) return [{ json: { chat_id: chatId, topic: '', msg: '⚠️ No hay carrusel pendiente.' } }];\nreturn [{ json: { chat_id: chatId, topic: ultimo.json.topic, msg: '✅ *Aprobado:* ' + ultimo.json.topic + '\\n\\nContext Graph actualizado.\\n🌿 _Work fast, live slow_' } }];"
+      },
+      "id": "proc-approve",
+      "name": "Procesar Aprobacion",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [780, 600]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": { "value": "SPREADSHEET_ID", "__rl": true },
+        "sheetName": { "value": "memoria", "__rl": true },
+        "columns": { "mappingMode": "defineBelow", "value": { "topic": "={{ $json.topic }}", "status": "published" } },
+        "options": {}
+      },
+      "id": "mark-published",
+      "name": "Marcar Publicado",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1040, 600],
+      "credentials": { "googleSheetsOAuth2Api": { "id": "CONFIG", "name": "Google Sheets" } }
+    },
+    {
+      "parameters": { "operation": "sendMessage", "chatId": "={{ $json.chat_id }}", "text": "={{ $json.msg }}", "additionalFields": { "parse_mode": "Markdown" } },
+      "id": "tg-approved",
+      "name": "TG Aprobado",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1300, 600],
+      "credentials": { "telegramApi": { "id": "CONFIG", "name": "Telegram Bot" } }
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": { "value": "SPREADSHEET_ID", "__rl": true },
+        "sheetName": { "value": "memoria", "__rl": true },
+        "options": {}
+      },
+      "id": "read-reject",
+      "name": "Leer (Rechazar)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [520, 780],
+      "credentials": { "googleSheetsOAuth2Api": { "id": "CONFIG", "name": "Google Sheets" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst chatId = $('Telegram Trigger').first().json.message?.chat?.id || 'TU_CHAT_ID';\nconst pendientes = items.filter(i => i.json.status === 'pending');\nconst ultimo = pendientes[pendientes.length - 1];\nif (!ultimo) return [{ json: { chat_id: chatId, topic: '', msg: '⚠️ Nada pendiente.' } }];\nreturn [{ json: { chat_id: chatId, topic: ultimo.json.topic, msg: '❌ *Rechazado:* ' + ultimo.json.topic + '\\nMovido al buffer del recap semanal.\\n\\n🔄 Escribe REGENERAR para nueva version.' } }];"
+      },
+      "id": "proc-reject",
+      "name": "Procesar Rechazo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [780, 780]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": { "value": "SPREADSHEET_ID", "__rl": true },
+        "sheetName": { "value": "memoria", "__rl": true },
+        "columns": { "mappingMode": "defineBelow", "value": { "topic": "={{ $json.topic }}", "status": "rejected" } },
+        "options": {}
+      },
+      "id": "mark-rejected",
+      "name": "Marcar Rechazado",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1040, 780],
+      "credentials": { "googleSheetsOAuth2Api": { "id": "CONFIG", "name": "Google Sheets" } }
+    },
+    {
+      "parameters": { "operation": "sendMessage", "chatId": "={{ $json.chat_id }}", "text": "={{ $json.msg }}", "additionalFields": { "parse_mode": "Markdown" } },
+      "id": "tg-rejected",
+      "name": "TG Rechazado",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1300, 780],
+      "credentials": { "telegramApi": { "id": "CONFIG", "name": "Telegram Bot" } }
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": { "value": "SPREADSHEET_ID", "__rl": true },
+        "sheetName": { "value": "memoria", "__rl": true },
+        "options": {}
+      },
+      "id": "read-regen",
+      "name": "Leer (Regen)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [520, 940],
+      "credentials": { "googleSheetsOAuth2Api": { "id": "CONFIG", "name": "Google Sheets" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst chatId = $('Telegram Trigger').first().json.message?.chat?.id || 'TU_CHAT_ID';\nconst pendientes = items.filter(i => (i.json.status === 'pending' || i.json.status === 'rejected') && i.json.carrusel_json);\nconst ultimo = pendientes[pendientes.length - 1];\nif (!ultimo) return [{ json: { chat_id: chatId, _error: true, msg: '⚠️ Nada para regenerar.' } }];\nlet prev; try { prev = JSON.parse(ultimo.json.carrusel_json); } catch(e) { prev = {}; }\nreturn [{ json: { chat_id: chatId, topic: ultimo.json.topic, source: ultimo.json.source || '', prev } }];"
+      },
+      "id": "prep-regen",
+      "name": "Preparar Regen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [780, 940]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "Eres AURA. Genera VERSION DIFERENTE del carrusel.\n\nMISMAS REGLAS: tono reflexivo, 5-6 slides desacoplados (layer_title_text, layer_body_text, layer_footer_text, background_image_prompt).\nCAMBIA: hook, angulo narrativo, metaforas visuales.\nMANTEN: design_settings, formato, estetica Aura Studio.\nBackgrounds: SIEMPRE \"no text, no typography, no letters\".\nNUNCA: robots, circuitos, neon.\n\nResponde SOLO JSON valido, mismo formato."
+            },
+            {
+              "role": "user",
+              "content": "=Tema: {{ $json.topic }}\nVersion anterior (NO repetir):\n{{ JSON.stringify($json.prev) }}\n\nGenera version diferente. SOLO JSON."
+            }
+          ]
+        },
+        "options": { "temperature": 0.9, "maxTokens": 3500 }
+      },
+      "id": "ai-regen",
+      "name": "AI Regenerar",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.8,
+      "position": [1040, 940],
+      "credentials": { "openAiApi": { "id": "CONFIG", "name": "OpenAI" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const aiRaw = $input.first().json;\nconst prev = $('Preparar Regen').first().json;\nlet c;\ntry {\n  const content = aiRaw.choices?.[0]?.message?.content || '';\n  c = JSON.parse(content.match(/\\{[\\s\\S]*\\}/)[0]);\n} catch (e) {\n  return [{ json: { chat_id: prev.chat_id, msg: '⚠️ Error regenerando.' } }];\n}\n// Quick guardrails\nfor (const s of (c.slides || [])) {\n  if (s.background_image_prompt && !s.background_image_prompt.toLowerCase().includes('no text')) {\n    s.background_image_prompt += ', no text, no typography';\n  }\n}\nif (!c.hashtags?.some(h => h.includes('AuraStudio'))) { c.hashtags = c.hashtags || []; c.hashtags.unshift('#AuraStudio'); }\nlet msg = '🔄 *REGENERADO*\\n\\n';\nfor (const s of (c.slides || [])) { msg += s.number + '. *' + s.layer_title_text + '*\\n'; }\nmsg += '\\n✍️ ' + (c.caption || '') + '\\n---\\n✅ *APROBAR* | ❌ *RECHAZAR* | 🔄 *REGENERAR*';\nreturn [{ json: { chat_id: prev.chat_id, topic: prev.topic, carrusel_json: JSON.stringify(c), msg } }];"
+      },
+      "id": "guardrails-regen",
+      "name": "Guardrails Regen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1300, 940]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": { "value": "SPREADSHEET_ID", "__rl": true },
+        "sheetName": { "value": "memoria", "__rl": true },
+        "columns": { "mappingMode": "defineBelow", "value": { "topic": "={{ $json.topic }}", "carrusel_json": "={{ $json.carrusel_json }}", "status": "pending" } },
+        "options": {}
+      },
+      "id": "save-regen",
+      "name": "Guardar Regen",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1560, 940],
+      "credentials": { "googleSheetsOAuth2Api": { "id": "CONFIG", "name": "Google Sheets" } }
+    },
+    {
+      "parameters": { "operation": "sendMessage", "chatId": "={{ $json.chat_id }}", "text": "={{ $json.msg }}", "additionalFields": { "parse_mode": "Markdown" } },
+      "id": "tg-regen",
+      "name": "TG Regenerado",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1820, 940],
+      "credentials": { "telegramApi": { "id": "CONFIG", "name": "Telegram Bot" } }
+    },
+    {
+      "parameters": { "operation": "sendMessage", "chatId": "={{ $json.message.chat.id }}", "text": "🤖 Comando no reconocido.\\n\\n*Comandos:*\\n✅ APROBAR\\n❌ RECHAZAR\\n🔄 REGENERAR\\n\\n🌿 _Work fast, live slow_", "additionalFields": { "parse_mode": "Markdown" } },
+      "id": "tg-unknown",
+      "name": "TG Desconocido",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [520, 1040],
+      "credentials": { "telegramApi": { "id": "CONFIG", "name": "Telegram Bot" } }
+    },
+
+
+    {
+      "parameters": { "rule": { "interval": [{ "triggerAtDay": 5, "triggerAtHour": 17 }] } },
+      "id": "trigger-recap",
+      "name": "Trigger Recap Viernes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 1260]
+    },
+    {
+      "parameters": { "operation": "read", "documentId": { "value": "SPREADSHEET_ID", "__rl": true }, "sheetName": { "value": "memoria", "__rl": true }, "options": {} },
+      "id": "read-buffer",
+      "name": "R1. Leer Buffer",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [260, 1260],
+      "credentials": { "googleSheetsOAuth2Api": { "id": "CONFIG", "name": "Google Sheets" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst hace7d = new Date(Date.now() - 7*24*60*60*1000);\nconst rechazados = items.filter(i => i.json.status === 'rejected' && new Date(i.json.date) >= hace7d);\nif (rechazados.length === 0) return [{ json: { _sin_recap: true } }];\nreturn [{ json: { rechazados: rechazados.map(r => ({ topic: r.json.topic, url: r.json.source_url, reason: r.json.angle })), total: rechazados.length } }];"
+      },
+      "id": "filter-buffer",
+      "name": "R2. Filtrar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [520, 1260]
+    },
+    {
+      "parameters": {
+        "conditions": { "options": {}, "conditions": [{ "leftValue": "={{ $json._sin_recap }}", "rightValue": true, "operator": { "type": "boolean", "operation": "notEquals" } }] }
+      },
+      "id": "if-recap",
+      "name": "Hay Descartes?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [780, 1260]
+    },
+    {
+      "parameters": { "operation": "sendMessage", "chatId": "TU_CHAT_ID", "text": "📭 Sin descartes para recap esta semana.", "additionalFields": { "parse_mode": "Markdown" } },
+      "id": "tg-no-recap",
+      "name": "TG Sin Recap",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1040, 1380],
+      "credentials": { "telegramApi": { "id": "CONFIG", "name": "Telegram Bot" } }
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "messages": {
+          "values": [
+            { "role": "system", "content": "Eres AURA en modo RECAP SEMANAL.\nCrea carrusel \"Lo que te perdiste\" con las noticias descartadas.\nMISMO formato desacoplado: layer_title_text, layer_body_text, layer_footer_text, background_image_prompt.\nBackgrounds: \"no text, no typography\". Estetica Aura Studio.\n5-6 slides. Hashtags: #AuraStudio, #WorkFastLiveSlow, #RecapSemanal.\nSOLO JSON." },
+            { "role": "user", "content": "=Descartes ({{ $json.total }}):\n{{ JSON.stringify($json.rechazados) }}\n\nGenera recap. SOLO JSON." }
+          ]
+        },
+        "options": { "temperature": 0.7, "maxTokens": 3500 }
+      },
+      "id": "ai-recap",
+      "name": "R3. AI Curador",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.8,
+      "position": [1040, 1200],
+      "credentials": { "openAiApi": { "id": "CONFIG", "name": "OpenAI" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const aiRaw = $input.first().json;\nlet c;\ntry {\n  const content = aiRaw.choices?.[0]?.message?.content || '';\n  c = JSON.parse(content.match(/\\{[\\s\\S]*\\}/)[0]);\n} catch (e) { return [{ json: { msg: '⚠️ Error en recap.' } }]; }\nfor (const s of (c.slides || [])) {\n  if (s.background_image_prompt && !s.background_image_prompt.toLowerCase().includes('no text')) {\n    s.background_image_prompt += ', no text, no typography';\n  }\n}\nlet msg = '📋 *RECAP SEMANAL*\\n\\n';\nfor (const s of (c.slides || [])) { msg += s.number + '. *' + (s.layer_title_text || '') + '*\\n'; }\nmsg += '\\n---\\n✅ *APROBAR* | ❌ *RECHAZAR* | 🔄 *REGENERAR*';\nreturn [{ json: { carrusel_json: JSON.stringify(c), msg } }];"
+      },
+      "id": "guardrails-recap",
+      "name": "R4. Guardrails Recap",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1300, 1200]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": { "value": "SPREADSHEET_ID", "__rl": true },
+        "sheetName": { "value": "memoria", "__rl": true },
+        "columns": { "mappingMode": "defineBelow", "value": { "topic": "Recap Semanal", "date": "={{ $now.toISO() }}", "status": "pending", "carrusel_json": "={{ $json.carrusel_json }}" } },
+        "options": {}
+      },
+      "id": "save-recap",
+      "name": "R5. Guardar Recap",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1560, 1200],
+      "credentials": { "googleSheetsOAuth2Api": { "id": "CONFIG", "name": "Google Sheets" } }
+    },
+    {
+      "parameters": { "operation": "sendMessage", "chatId": "TU_CHAT_ID", "text": "={{ $json.msg }}", "additionalFields": { "parse_mode": "Markdown" } },
+      "id": "tg-recap",
+      "name": "R6. TG Recap",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1820, 1200],
+      "credentials": { "telegramApi": { "id": "CONFIG", "name": "Telegram Bot" } }
+    }
+  ],
+  "connections": {
+    "Trigger 4x Semana": {
+      "main": [[
+        { "node": "1. Fuentes RSS", "type": "main", "index": 0 },
+        { "node": "4. Leer Context Graph", "type": "main", "index": 0 }
+      ]]
+    },
+    "1. Fuentes RSS": { "main": [[{ "node": "2. Fetch RSS", "type": "main", "index": 0 }]] },
+    "2. Fetch RSS": { "main": [[{ "node": "3. Parsear RSS", "type": "main", "index": 0 }]] },
+    "3. Parsear RSS": { "main": [[{ "node": "Merge", "type": "main", "index": 0 }]] },
+    "4. Leer Context Graph": { "main": [[{ "node": "Merge", "type": "main", "index": 1 }]] },
+    "Merge": { "main": [[{ "node": "5. Filtrar + RAG", "type": "main", "index": 0 }]] },
+    "5. Filtrar + RAG": { "main": [[{ "node": "Hay Noticias?", "type": "main", "index": 0 }]] },
+    "Hay Noticias?": {
+      "main": [
+        [{ "node": "6. Agente Editor", "type": "main", "index": 0 }],
+        [{ "node": "TG Sin Noticias", "type": "main", "index": 0 }]
+      ]
+    },
+    "6. Agente Editor": { "main": [[{ "node": "7. Guardrails", "type": "main", "index": 0 }]] },
+    "7. Guardrails": { "main": [[{ "node": "8. Separar Slides", "type": "main", "index": 0 }]] },
+    "8. Separar Slides": { "main": [[{ "node": "9. Generar Fondos (DALL-E)", "type": "main", "index": 0 }]] },
+    "9. Generar Fondos (DALL-E)": { "main": [[{ "node": "10. Compilar para Render", "type": "main", "index": 0 }]] },
+    "10. Compilar para Render": { "main": [[
+      { "node": "11. Render Plantilla [PLACEHOLDER]", "type": "main", "index": 0 },
+      { "node": "12. Guardar en Memoria", "type": "main", "index": 0 }
+    ]] },
+    "11. Render Plantilla [PLACEHOLDER]": { "main": [[]] },
+    "12. Guardar en Memoria": { "main": [[{ "node": "13. Buffer Rechazados", "type": "main", "index": 0 }]] },
+    "13. Buffer Rechazados": { "main": [[{ "node": "14. Guardar Rechazados", "type": "main", "index": 0 }]] },
+    "14. Guardar Rechazados": { "main": [[{ "node": "15. TG Carrusel", "type": "main", "index": 0 }]] },
+
+    "Telegram Trigger": { "main": [[{ "node": "Router", "type": "main", "index": 0 }]] },
+    "Router": {
+      "main": [
+        [{ "node": "Leer (Aprobar)", "type": "main", "index": 0 }],
+        [{ "node": "Leer (Rechazar)", "type": "main", "index": 0 }],
+        [{ "node": "Leer (Regen)", "type": "main", "index": 0 }],
+        [{ "node": "TG Desconocido", "type": "main", "index": 0 }]
+      ]
+    },
+    "Leer (Aprobar)": { "main": [[{ "node": "Procesar Aprobacion", "type": "main", "index": 0 }]] },
+    "Procesar Aprobacion": { "main": [[{ "node": "Marcar Publicado", "type": "main", "index": 0 }]] },
+    "Marcar Publicado": { "main": [[{ "node": "TG Aprobado", "type": "main", "index": 0 }]] },
+    "Leer (Rechazar)": { "main": [[{ "node": "Procesar Rechazo", "type": "main", "index": 0 }]] },
+    "Procesar Rechazo": { "main": [[{ "node": "Marcar Rechazado", "type": "main", "index": 0 }]] },
+    "Marcar Rechazado": { "main": [[{ "node": "TG Rechazado", "type": "main", "index": 0 }]] },
+    "Leer (Regen)": { "main": [[{ "node": "Preparar Regen", "type": "main", "index": 0 }]] },
+    "Preparar Regen": { "main": [[{ "node": "AI Regenerar", "type": "main", "index": 0 }]] },
+    "AI Regenerar": { "main": [[{ "node": "Guardrails Regen", "type": "main", "index": 0 }]] },
+    "Guardrails Regen": { "main": [[{ "node": "Guardar Regen", "type": "main", "index": 0 }]] },
+    "Guardar Regen": { "main": [[{ "node": "TG Regenerado", "type": "main", "index": 0 }]] },
+
+    "Trigger Recap Viernes": { "main": [[{ "node": "R1. Leer Buffer", "type": "main", "index": 0 }]] },
+    "R1. Leer Buffer": { "main": [[{ "node": "R2. Filtrar", "type": "main", "index": 0 }]] },
+    "R2. Filtrar": { "main": [[{ "node": "Hay Descartes?", "type": "main", "index": 0 }]] },
+    "Hay Descartes?": {
+      "main": [
+        [{ "node": "R3. AI Curador", "type": "main", "index": 0 }],
+        [{ "node": "TG Sin Recap", "type": "main", "index": 0 }]
+      ]
+    },
+    "R3. AI Curador": { "main": [[{ "node": "R4. Guardrails Recap", "type": "main", "index": 0 }]] },
+    "R4. Guardrails Recap": { "main": [[{ "node": "R5. Guardar Recap", "type": "main", "index": 0 }]] },
+    "R5. Guardar Recap": { "main": [[{ "node": "R6. TG Recap", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1", "saveManualExecutions": true },
+  "tags": [{ "name": "aura-studio-v3" }, { "name": "template-pipeline" }]
+}

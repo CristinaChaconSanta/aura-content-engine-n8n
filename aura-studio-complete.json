@@ -1,0 +1,1427 @@
+{
+  "name": "Aura Studio - Content Engine Completo",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": ["message"]
+      },
+      "id": "tg-trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 400],
+      "credentials": {
+        "telegramApi": {
+          "id": "CONFIGURAR",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtDay": 7,
+              "triggerAtHour": 20
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Domingo 8PM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Bridge: el Schedule simula un comando EXTRAER\n// para entrar al mismo flujo que Telegram\nreturn [{\n  json: {\n    message: {\n      text: 'EXTRAER',\n      chat: { id: 'CONFIGURAR_TU_CHAT_ID' },\n      from: { first_name: 'Schedule' }\n    },\n    _source: 'schedule_trigger'\n  }\n}];"
+      },
+      "id": "schedule-bridge",
+      "name": "Schedule Bridge",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 200]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.message.text.toUpperCase().trim() }}",
+                    "rightValue": "EXTRAER",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "EXTRAER"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.message.text.toUpperCase().trim().replace('Í','I') }}",
+                    "rightValue": "SI",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "SI"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.message.text.toUpperCase().trim() }}",
+                    "rightValue": "NO",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "NO"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.message.text.toUpperCase().trim() }}",
+                    "rightValue": "SKIP",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "SKIP"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.message.text.toUpperCase().trim() }}",
+                    "rightValue": "LISTO",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "LISTO"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.message.text.toUpperCase().trim() }}",
+                    "rightValue": "REGENERAR",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "REGENERAR"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "switch-router",
+      "name": "Router Comandos",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [480, 400]
+    },
+
+    {
+      "parameters": {
+        "content": "## AURA STUDIO - Content Engine\n\n**Arquitectura:**\n1. Telegram Trigger (entrada unica)\n2. Schedule Trigger (domingo 8PM)\n3. Switch Router (EXTRAER/SI/NO/SKIP/LISTO/REGENERAR)\n\n**Orden critico:** Context Graph → RAG → AI\n**Guardrails** en cada salida de AI\n\nComandos Telegram:\n- EXTRAER: busca articulos\n- SI: aprueba y genera carrusel\n- NO: descarta articulo\n- SKIP: siguiente sin descartar\n- LISTO: guarda carrusel final\n- REGENERAR: rehace carrusel"
+      },
+      "id": "sticky-main",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-200, 0]
+    },
+
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $json.message.chat.id }}",
+        "text": "🔄 *Extrayendo artículos de las fuentes...*\n\nFuentes: MIT News, MIT Sloan, CIO, Wired (AI/Business/Science)\n\nEsto puede tomar unos segundos.",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "tg-extracting",
+      "name": "TG Extrayendo",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [720, 0],
+      "credentials": {
+        "telegramApi": {
+          "id": "CONFIGURAR",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Definir las 6 fuentes RSS + datos del chat para pasar adelante\nconst chatId = $input.first().json.message?.chat?.id || 'CONFIGURAR_TU_CHAT_ID';\n\nconst feeds = [\n  { url: 'https://news.mit.edu/topic/mitartificial-intelligence2-rss.xml', source: 'MIT News AI' },\n  { url: 'https://sloanreview.mit.edu/feed/', source: 'MIT Sloan Review' },\n  { url: 'https://www.cio.com/feed/', source: 'CIO.com' },\n  { url: 'https://www.wired.com/feed/tag/ai/latest/rss', source: 'Wired AI' },\n  { url: 'https://www.wired.com/feed/category/business/latest/rss', source: 'Wired Business' },\n  { url: 'https://www.wired.com/feed/category/science/latest/rss', source: 'Wired Science' }\n];\n\nreturn feeds.map(f => ({ json: { ...f, chat_id: chatId } }));"
+      },
+      "id": "rss-urls",
+      "name": "Definir Fuentes RSS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [960, 0]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "fetch-rss",
+      "name": "Fetch RSS Feeds",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1200, 0],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// =============================================\n// PARSEAR RSS XML → JSON de articulos\n// =============================================\nconst items = $input.all();\nconst articles = [];\n\nfor (const item of items) {\n  const xml = typeof item.json.data === 'string' \n    ? item.json.data \n    : (item.json.body || item.json.response || '');\n  const source = item.json.source || 'Unknown';\n  const chatId = item.json.chat_id || '';\n\n  if (!xml || typeof xml !== 'string') continue;\n\n  // Parser RSS simple pero robusto\n  const itemRegex = /<item[^>]*>([\\s\\S]*?)<\\/item>/gi;\n  let match;\n\n  while ((match = itemRegex.exec(xml)) !== null) {\n    const x = match[1];\n    const getTag = (tag) => {\n      const m = x.match(new RegExp('<' + tag + '[^>]*>([\\\\s\\\\S]*?)</' + tag + '>', 'i'));\n      if (!m) return '';\n      return m[1]\n        .replace(/<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>/g, '$1')\n        .replace(/<[^>]+>/g, '')\n        .trim();\n    };\n\n    const title = getTag('title');\n    const link = getTag('link') || getTag('guid');\n    const description = getTag('description').substring(0, 800);\n    const pubDate = getTag('pubDate');\n\n    if (title && link) {\n      articles.push({\n        title,\n        link,\n        description,\n        pubDate,\n        source,\n        chat_id: chatId\n      });\n    }\n  }\n}\n\nif (articles.length === 0) {\n  return [{ json: { _no_articles: true, chat_id: items[0]?.json?.chat_id || '' } }];\n}\n\n// Deduplicar por link\nconst seen = new Set();\nconst unique = articles.filter(a => {\n  if (seen.has(a.link)) return false;\n  seen.add(a.link);\n  return true;\n});\n\n// Retornar como un solo item con array (para facilitar merge posterior)\nreturn [{ json: { articles: unique, total: unique.length, chat_id: unique[0]?.chat_id || '' } }];"
+      },
+      "id": "parse-rss",
+      "name": "Parsear RSS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1440, 0]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": { "value": "SPREADSHEET_ID_AQUI", "__rl": true },
+        "sheetName": { "value": "articulos", "__rl": true },
+        "options": {}
+      },
+      "id": "gs-read-articulos-extract",
+      "name": "GS Leer Articulos Existentes",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1440, 180],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "CONFIGURAR",
+          "name": "Google Sheets OAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "id": "merge-rss-sheets",
+      "name": "Merge RSS + Sheets",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [1680, 80]
+    },
+    {
+      "parameters": {
+        "jsCode": "// =============================================\n// FILTRAR DUPLICADOS + CARGAR CONTEXT GRAPH + RAG\n// =============================================\n// ORDEN CRITICO: Context Graph PRIMERO, RAG DESPUES\n// Esto le da al AI la \"memoria institucional\" antes\n// de consultar el conocimiento de marca.\n// =============================================\n\nconst items = $input.all();\n\n// Separar datos RSS de datos existentes en sheets\nlet newArticles = [];\nlet existingLinks = new Set();\nlet chatId = '';\n\nfor (const item of items) {\n  if (item.json.articles) {\n    // Viene del parser RSS\n    newArticles = item.json.articles;\n    chatId = item.json.chat_id || chatId;\n  } else if (item.json.link) {\n    // Viene de Google Sheets (articulos existentes)\n    existingLinks.add(item.json.link);\n  }\n}\n\n// Filtrar los que ya existen\nconst freshArticles = newArticles.filter(a => !existingLinks.has(a.link));\n\nif (freshArticles.length === 0) {\n  return [{ json: { _no_new_articles: true, chat_id: chatId } }];\n}\n\n// =============================================\n// CONTEXT GRAPH - Memoria Institucional Aura Studio\n// =============================================\n// En produccion: leer desde Google Sheets/Supabase\n// Por ahora, estructura base que se va llenando\nconst contextGraph = {\n  brand: 'Aura Studio',\n  philosophy: 'Work fast, live slow',\n  historial_publicaciones: [],\n  temas_recientes: [],\n  restricciones: [\n    'No repetir temas de las ultimas 2 semanas',\n    'Alternar educativo y tendencias',\n    'Maximo 2 posts promocionales por semana',\n    'NUNCA usar estetica tech fria, robots, circuitos',\n    'SIEMPRE mantener tono reflexivo, sofisticado, humano',\n    'NO tech bros, NO vendedores agresivos, NO corporativo frio'\n  ],\n  calendario_editorial: {\n    lunes: 'educativo_tip',\n    martes: 'tendencia_industria',\n    miercoles: 'caso_exito',\n    jueves: 'detras_de_camaras',\n    viernes: 'recurso_herramienta',\n    sabado: 'reflexion_lifestyle',\n    domingo: 'inspiracion'\n  },\n  decisiones_previas: [],\n  metricas_engagement: {}\n};\n\n// =============================================\n// RAG - Identidad de Marca Aura Studio\n// =============================================\nconst ragBrand = {\n  identidad: {\n    nombre: 'Aura Studio',\n    tagline: 'Work fast, live slow',\n    enfoque: 'Studio de pensamiento estrategico en automatizacion con IA',\n    tono: 'Reflexivo, sofisticado, humano, calido',\n    no_somos: 'Tech bros, vendedores agresivos, corporativos frios'\n  },\n  estetica_visual: {\n    estilo: 'Fotografia cinematografica editorial',\n    naturaleza: 'Latinoamericana/tropical: frailejones de paramo colombiano, hojas de monstera, frutas tropicales (uchuvas, maracuya, mangos)',\n    iluminacion: 'Luz natural: golden hour, neblina de montana',\n    paleta: 'Verdes profundos, crema, beige, dorados sutiles',\n    personas: 'Reales, diversas, en conexion con naturaleza',\n    evitar: 'Estetica tech fria, robots, circuitos, oficinas genericas'\n  },\n  tipografia: {\n    titulos: 'Kaneda Gothic Medium/Bold',\n    nota: 'El logo se agrega como overlay al final'\n  },\n  cta_permitidos: ['comenta', 'guarda', 'comparte'],\n  pilares_contenido: [\n    { pilar: 'IA y Automatizacion', porcentaje: 35 },\n    { pilar: 'Liderazgo y Negocios', porcentaje: 25 },\n    { pilar: 'Reflexion y Lifestyle', porcentaje: 20 },\n    { pilar: 'Tendencias Tech', porcentaje: 20 }\n  ]\n};\n\n// Preparar batch para scoring AI\nconst articleBatch = freshArticles.slice(0, 15).map((a, i) => ({\n  index: i,\n  title: a.title,\n  description: a.description.substring(0, 400),\n  source: a.source,\n  link: a.link,\n  pubDate: a.pubDate\n}));\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    context_graph: contextGraph,\n    rag_brand: ragBrand,\n    articles_to_score: articleBatch,\n    articles_full: freshArticles.slice(0, 15),\n    total_new: freshArticles.length\n  }\n}];"
+      },
+      "id": "filter-context-rag",
+      "name": "Filter + Context Graph + RAG",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1920, 80]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "leftValue": "={{ $json._no_new_articles }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notEquals" }
+            },
+            {
+              "leftValue": "={{ $json._no_articles }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notEquals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-has-articles",
+      "name": "Hay Articulos Nuevos?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2160, 80]
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $json.chat_id }}",
+        "text": "📭 No se encontraron artículos nuevos en esta extracción.\n\nTodas las fuentes ya fueron procesadas. Intenta más tarde.",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tg-no-articles",
+      "name": "TG No Hay Nuevos",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2400, 200],
+      "credentials": {
+        "telegramApi": { "id": "CONFIGURAR", "name": "Telegram Bot" }
+      }
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "Eres un analista de contenido para AURA STUDIO, un studio de pensamiento estrategico en automatizacion con IA.\n\nFILOSOFIA: \"Work fast, live slow\"\nTONO: Reflexivo, sofisticado, humano.\nNO SOMOS: Tech bros, vendedores agresivos.\n\n--- CONTEXT GRAPH (memoria institucional) ---\nDebes considerar el historial y restricciones al puntuar.\nTemas ya cubiertos recientemente deben recibir menor score.\nArticulos que complementen temas previos reciben bonus.\n\n--- CRITERIOS DE PUNTUACION (score 1-100) ---\n- Datos concretos/estadisticas: +20\n- Relevancia para lideres empresariales: +20\n- Controversial/contraintuitivo: +15\n- Utilidad practica inmediata: +15\n- Tendencia actual: +15\n- Historia/caso de estudio: +15\n- BONUS: Alineado con filosofia Aura (+10)\n- PENALIZACION: Tono tech bro o clickbait (-20)\n- PENALIZACION: Tema ya cubierto recientemente (-30)\n\nCategorias: IA, Liderazgo, Negocios, Ciencia, Startups, Cultura\n\nRespuesta OBLIGATORIA en JSON valido, sin markdown:\n{\"scored_articles\": [{\"index\": 0, \"score\": 85, \"categoria\": \"IA\", \"resumen\": \"2 oraciones max\", \"datos_clave\": [\"dato1\", \"dato2\"], \"tipo_sugerido\": \"profundo|resumen\", \"aura_fit\": \"alto|medio|bajo\", \"razon_score\": \"por que este score\"}]}"
+            },
+            {
+              "role": "user",
+              "content": "=CONTEXT GRAPH:\n{{ JSON.stringify($json.context_graph, null, 2) }}\n\nRAG MARCA:\n{{ JSON.stringify($json.rag_brand, null, 2) }}\n\nARTICULOS A EVALUAR:\n{{ JSON.stringify($json.articles_to_score, null, 2) }}\n\nPuntua cada articulo. Responde SOLO JSON valido."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.4,
+          "maxTokens": 3000
+        }
+      },
+      "id": "ai-score",
+      "name": "AI Puntuar Articulos",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.8,
+      "position": [2400, -20],
+      "credentials": {
+        "openAiApi": { "id": "CONFIGURAR", "name": "OpenAI API" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// =============================================\n// GUARDRAILS: Validar scoring del AI\n// =============================================\nconst aiResponse = $input.first().json;\nconst prevData = $('Filter + Context Graph + RAG').first().json;\n\nlet scored;\ntry {\n  const content = aiResponse.choices?.[0]?.message?.content\n    || aiResponse.message?.content\n    || aiResponse.text\n    || JSON.stringify(aiResponse);\n\n  const jsonMatch = content.match(/\\{[\\s\\S]*\\}/);\n  if (!jsonMatch) throw new Error('No JSON found');\n  scored = JSON.parse(jsonMatch[0]);\n} catch (e) {\n  // GUARDRAIL: Si no se puede parsear, asignar scores basicos\n  scored = {\n    scored_articles: prevData.articles_to_score.map((a, i) => ({\n      index: i,\n      score: 50,\n      categoria: 'IA',\n      resumen: a.description?.substring(0, 100) || a.title,\n      datos_clave: [],\n      tipo_sugerido: 'resumen',\n      aura_fit: 'medio',\n      razon_score: 'Score por defecto - AI no retorno JSON valido'\n    }))\n  };\n}\n\nconst articles = scored.scored_articles || [];\nconst fullArticles = prevData.articles_full || [];\n\n// GUARDRAILS de validacion\nconst validated = articles.map(a => {\n  const issues = [];\n\n  // Score debe estar entre 1-100\n  if (!a.score || a.score < 1 || a.score > 100) {\n    a.score = Math.min(100, Math.max(1, a.score || 50));\n    issues.push('Score ajustado a rango valido');\n  }\n\n  // Debe tener categoria\n  const validCats = ['IA', 'Liderazgo', 'Negocios', 'Ciencia', 'Startups', 'Cultura'];\n  if (!validCats.includes(a.categoria)) {\n    a.categoria = 'IA';\n    issues.push('Categoria ajustada a default');\n  }\n\n  // Debe tener resumen\n  if (!a.resumen || a.resumen.length < 10) {\n    issues.push('Resumen demasiado corto o ausente');\n  }\n\n  a.guardrail_issues = issues;\n  return a;\n});\n\n// Combinar con datos completos de articulos\nconst enriched = validated.map(a => {\n  const full = fullArticles[a.index] || {};\n  return {\n    ...full,\n    score: a.score,\n    categoria: a.categoria,\n    resumen: a.resumen || full.description?.substring(0, 200),\n    datos_clave: (a.datos_clave || []).join(' | '),\n    tipo_sugerido: a.tipo_sugerido || 'resumen',\n    aura_fit: a.aura_fit || 'medio',\n    estado: 'nuevo',\n    extractedAt: new Date().toISOString(),\n    guardrail_issues: a.guardrail_issues?.join('; ') || ''\n  };\n});\n\n// Ordenar por score descendente\nenriched.sort((a, b) => b.score - a.score);\n\nreturn [{\n  json: {\n    chat_id: prevData.chat_id,\n    articles_scored: enriched,\n    best_article: enriched[0] || null,\n    total_scored: enriched.length\n  }\n}];"
+      },
+      "id": "guardrails-score",
+      "name": "Guardrails Scoring",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2640, -20]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": { "value": "SPREADSHEET_ID_AQUI", "__rl": true },
+        "sheetName": { "value": "articulos", "__rl": true },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "title": "={{ $json.articles_scored[0].title }}",
+            "link": "={{ $json.articles_scored[0].link }}",
+            "source": "={{ $json.articles_scored[0].source }}",
+            "pubDate": "={{ $json.articles_scored[0].pubDate }}",
+            "description": "={{ $json.articles_scored[0].description }}",
+            "score": "={{ $json.articles_scored[0].score }}",
+            "categoria": "={{ $json.articles_scored[0].categoria }}",
+            "resumen": "={{ $json.articles_scored[0].resumen }}",
+            "datos_clave": "={{ $json.articles_scored[0].datos_clave }}",
+            "tipo_sugerido": "={{ $json.articles_scored[0].tipo_sugerido }}",
+            "estado": "nuevo",
+            "extractedAt": "={{ $json.articles_scored[0].extractedAt }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "gs-save-articles",
+      "name": "GS Guardar Articulos",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2880, -20],
+      "credentials": {
+        "googleSheetsOAuth2Api": { "id": "CONFIGURAR", "name": "Google Sheets OAuth" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Preparar datos para guardar estado y mensaje de Telegram\nconst data = $('Guardrails Scoring').first().json;\nconst best = data.best_article;\n\nif (!best) {\n  return [{ json: { chat_id: data.chat_id, _no_articles: true } }];\n}\n\n// Datos para actualizar sheet estado\nconst estado = {\n  chat_id: data.chat_id,\n  articulo_actual_link: best.link,\n  articulo_actual_title: best.title,\n  carrusel_actual: '',\n  fase: 'esperando_aprobacion',\n  updated_at: new Date().toISOString()\n};\n\n// Mensaje formateado para Telegram\nconst datosClaveText = best.datos_clave\n  ? best.datos_clave.split(' | ').map(d => '  • ' + d).join('\\n')\n  : '  (sin datos clave)';\n\nconst message = `🔔 *ARTICULO PARA CARRUSEL*\\n\\n` +\n  `📰 *${best.title}*\\n\\n` +\n  `⭐ Score: ${best.score}/100\\n` +\n  `📂 Categoria: ${best.categoria}\\n` +\n  `🔗 Fuente: ${best.source}\\n` +\n  `🌿 Aura Fit: ${best.aura_fit || 'medio'}\\n\\n` +\n  `📝 *Resumen:*\\n${best.resumen}\\n\\n` +\n  `📊 *Datos clave:*\\n${datosClaveText}\\n\\n` +\n  `---\\n` +\n  `✅ Escribe *SI* para generar carrusel\\n` +\n  `❌ Escribe *NO* para descartar\\n` +\n  `⏭️ Escribe *SKIP* para ver siguiente`;\n\nreturn [{ json: { ...estado, telegram_message: message, total_available: data.total_scored } }];"
+      },
+      "id": "prep-estado-extract",
+      "name": "Preparar Estado + Mensaje",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3120, -20]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": { "value": "SPREADSHEET_ID_AQUI", "__rl": true },
+        "sheetName": { "value": "estado", "__rl": true },
+        "columns": {
+          "mappingMode": "autoMapInputData"
+        },
+        "options": {
+          "cellUpdate": "update"
+        }
+      },
+      "id": "gs-update-estado-extract",
+      "name": "GS Actualizar Estado",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [3360, -20],
+      "credentials": {
+        "googleSheetsOAuth2Api": { "id": "CONFIGURAR", "name": "Google Sheets OAuth" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.telegram_message }}",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tg-send-article",
+      "name": "TG Enviar Articulo",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [3600, -20],
+      "credentials": {
+        "telegramApi": { "id": "CONFIGURAR", "name": "Telegram Bot" }
+      }
+    },
+
+    {
+      "parameters": {
+        "content": "## RAMA: SI (Aprobar + Generar Carrusel)\n\nFlujo:\n1. Leer estado actual\n2. Cargar Context Graph + RAG\n3. Generar carrusel con AI\n4. Guardrails de validacion\n5. Guardar y enviar por Telegram"
+      },
+      "id": "sticky-si",
+      "name": "Sticky Note SI",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [600, 350]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": { "value": "SPREADSHEET_ID_AQUI", "__rl": true },
+        "sheetName": { "value": "estado", "__rl": true },
+        "options": {}
+      },
+      "id": "gs-read-estado-si",
+      "name": "GS Leer Estado SI",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [720, 500],
+      "credentials": {
+        "googleSheetsOAuth2Api": { "id": "CONFIGURAR", "name": "Google Sheets OAuth" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Leer estado y preparar para generacion de carrusel\nconst estado = $input.first().json;\nconst chatId = $('Router Comandos').first().json.message?.chat?.id || estado.chat_id;\n\nif (!estado.articulo_actual_link || estado.fase !== 'esperando_aprobacion') {\n  return [{\n    json: {\n      _error: true,\n      chat_id: chatId,\n      message: '⚠️ No hay articulo pendiente de aprobacion. Usa EXTRAER primero.'\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    articulo_link: estado.articulo_actual_link,\n    articulo_title: estado.articulo_actual_title,\n    fase: estado.fase\n  }\n}];"
+      },
+      "id": "check-estado-si",
+      "name": "Validar Estado SI",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [960, 500]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": { "value": "SPREADSHEET_ID_AQUI", "__rl": true },
+        "sheetName": { "value": "articulos", "__rl": true },
+        "options": {
+          "dataLocationOnSheet": {
+            "values": {}
+          }
+        }
+      },
+      "id": "gs-read-articulo-si",
+      "name": "GS Leer Articulo Aprobado",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1200, 500],
+      "credentials": {
+        "googleSheetsOAuth2Api": { "id": "CONFIGURAR", "name": "Google Sheets OAuth" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Encontrar el articulo aprobado y preparar prompt de carrusel\nconst prevData = $('Validar Estado SI').first().json;\nconst allArticles = $input.all().map(i => i.json);\nconst article = allArticles.find(a => a.link === prevData.articulo_link);\n\nif (!article) {\n  return [{ json: { _error: true, chat_id: prevData.chat_id, message: '⚠️ Articulo no encontrado en la base de datos.' } }];\n}\n\n// =============================================\n// CONTEXT GRAPH + RAG para generacion de carrusel\n// ORDEN: Context Graph PRIMERO, RAG DESPUES\n// =============================================\nconst contextGraph = {\n  restricciones: [\n    'No repetir temas de las ultimas 2 semanas',\n    'Mantener tono reflexivo, sofisticado, humano, calido',\n    'NUNCA usar estetica tech fria',\n    'Equilibrar contenido educativo con tendencias'\n  ],\n  publicaciones_recientes: [],\n  filosofia: 'Work fast, live slow'\n};\n\nconst ragBrand = {\n  nombre: 'Aura Studio',\n  tono: 'Reflexivo, sofisticado, humano, calido',\n  no_somos: 'Tech bros, vendedores agresivos, corporativos frios',\n  estetica: {\n    estilo: 'Fotografia cinematografica editorial',\n    naturaleza: 'Latinoamericana/tropical: frailejones de paramo colombiano, hojas de monstera, frutas tropicales',\n    luz: 'Natural: golden hour, neblina de montana',\n    paleta: 'Verdes profundos, crema, beige, dorados sutiles',\n    personas: 'Reales, diversas, en conexion con naturaleza',\n    evitar: 'Estetica tech fria, robots, circuitos, oficinas genericas'\n  },\n  tipografia: 'Kaneda Gothic Medium/Bold para titulos',\n  cta_permitidos: ['comenta', 'guarda', 'comparte']\n};\n\nreturn [{\n  json: {\n    chat_id: prevData.chat_id,\n    article,\n    context_graph: contextGraph,\n    rag_brand: ragBrand\n  }\n}];"
+      },
+      "id": "prep-carousel",
+      "name": "Preparar Prompt Carrusel",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1440, 500]
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $json.chat_id }}",
+        "text": "🎨 *Generando carrusel para:*\n{{ $json.article.title }}\n\nAplicando identidad Aura Studio...\nContext Graph ✅ → RAG ✅ → Generando...",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tg-generating",
+      "name": "TG Generando Carrusel",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1680, 500],
+      "credentials": {
+        "telegramApi": { "id": "CONFIGURAR", "name": "Telegram Bot" }
+      }
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "Eres el creador de contenido principal de AURA STUDIO.\n\n=== CONTEXT GRAPH (Memoria Institucional) ===\nAura Studio es un studio de pensamiento estrategico en automatizacion con IA.\nFilosofia: \"Work fast, live slow\"\nTono: Reflexivo, sofisticado, humano, calido.\nNO somos: Tech bros, vendedores agresivos, corporativos frios.\n\nRestricciones activas:\n- No repetir temas cubiertos recientemente\n- Alternar entre educativo y tendencias\n- Todo contenido debe sentirse humano, no robotico\n- Priorizar datos concretos sobre hype\n\n=== RAG (Identidad de Marca) ===\nESTETICA VISUAL:\n- Fotografia cinematografica editorial\n- Naturaleza latinoamericana/tropical: frailejones de paramo colombiano, hojas de monstera, frutas tropicales (uchuvas, maracuya, mangos)\n- Luz natural: golden hour, neblina de montana\n- Paleta: verdes profundos, crema, beige, dorados sutiles\n- Personas reales diversas en conexion con naturaleza\n- EVITAR ABSOLUTAMENTE: estetica tech fria, robots, circuitos, oficinas genericas, neon, colores brillantes artificiales\n\nTIPOGRAFIA: Kaneda Gothic Medium/Bold para titulos\nLOGO: Se agrega como overlay despues (no incluir en prompts de imagen)\nCTA PERMITIDOS: comenta, guarda, comparte\n\n=== ESTRUCTURA CARRUSEL (5-7 slides) ===\n- Slide 1 (portada): Hook potente, maximo 8 palabras. Debe generar curiosidad.\n- Slides 2-5 (contenido): Un concepto por slide, datos concretos, maximo 30 palabras por slide.\n- Slide 6-7 (cierre): Reflexion + CTA sutil alineado con \"Work fast, live slow\"\n\n=== PROMPTS DE IMAGEN ===\nCada prompt DEBE incluir:\n- \"cinematic editorial photography\"\n- Elemento de naturaleza latinoamericana (NO siempre las mismas frutas, ser creativo: orquideas, cafe colombiano, cacao, platanos, guayabas, paisajes andinos, selva, costa caribe)\n- Tipo de luz especifico (golden hour, soft morning light, mountain mist)\n- \"deep greens, cream, beige, subtle gold tones\"\n- \"diverse real people in connection with nature\" (cuando aplique)\n- NUNCA: tech aesthetic, robots, circuits, neon, generic offices\n\nRespuesta OBLIGATORIA en JSON valido sin markdown:\n{\n  \"slides\": [\n    {\n      \"numero\": 1,\n      \"tipo\": \"portada\",\n      \"titulo\": \"Hook aqui max 8 palabras\",\n      \"subtitulo\": \"opcional\",\n      \"texto\": \"\",\n      \"prompt_imagen\": \"prompt detallado estilo Aura Studio\",\n      \"nota_diseno\": \"instruccion para el disenador\"\n    }\n  ],\n  \"caption\": \"caption para IG/LinkedIn, max 280 chars, con emojis sutiles\",\n  \"hashtags\": [\"#AuraStudio\", \"#WorkFastLiveSlow\", \"mas tags\"],\n  \"cta\": \"comenta|guarda|comparte\",\n  \"musica_sugerida\": \"cancion chill/ambient sugerida\",\n  \"plataforma_ideal\": \"instagram|linkedin|ambas\",\n  \"notas_produccion\": \"notas adicionales para produccion\"\n}"
+            },
+            {
+              "role": "user",
+              "content": "=Crea un carrusel para:\n\nTitulo: {{ $json.article.title }}\nResumen: {{ $json.article.resumen || $json.article.description }}\nDatos clave: {{ $json.article.datos_clave || 'Extraer del articulo' }}\nCategoria: {{ $json.article.categoria || 'IA' }}\nFuente: {{ $json.article.source }}\n\nCONTEXT GRAPH:\n{{ JSON.stringify($json.context_graph) }}\n\nRAG BRAND:\n{{ JSON.stringify($json.rag_brand) }}\n\nGenera 5-7 slides con la estetica Aura Studio. Responde SOLO con JSON valido."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.7,
+          "maxTokens": 4000
+        }
+      },
+      "id": "ai-carousel",
+      "name": "AI Generar Carrusel",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.8,
+      "position": [1920, 500],
+      "credentials": {
+        "openAiApi": { "id": "CONFIGURAR", "name": "OpenAI API" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// =============================================\n// GUARDRAILS: Validar carrusel generado\n// =============================================\nconst aiResponse = $input.first().json;\nconst prevData = $('Preparar Prompt Carrusel').first().json;\n\nlet carousel;\ntry {\n  const content = aiResponse.choices?.[0]?.message?.content\n    || aiResponse.message?.content\n    || aiResponse.text\n    || JSON.stringify(aiResponse);\n\n  const jsonMatch = content.match(/\\{[\\s\\S]*\\}/);\n  if (!jsonMatch) throw new Error('No JSON found in AI response');\n  carousel = JSON.parse(jsonMatch[0]);\n} catch (e) {\n  return [{\n    json: {\n      _error: true,\n      chat_id: prevData.chat_id,\n      message: '⚠️ Error al parsear carrusel del AI. Intenta REGENERAR.\\n\\nError: ' + e.message\n    }\n  }];\n}\n\n// =============================================\n// VALIDACIONES DE GUARDRAILS\n// =============================================\nconst issues = [];\nconst slides = carousel.slides || [];\n\n// G1: Debe tener entre 5-7 slides\nif (slides.length < 4) issues.push('Menos de 4 slides');\nif (slides.length > 10) issues.push('Mas de 10 slides');\n\n// G2: Slide 1 debe ser portada con hook corto\nif (slides[0]) {\n  if (slides[0].titulo && slides[0].titulo.split(' ').length > 12) {\n    issues.push('Hook de portada muy largo (max 8-10 palabras)');\n  }\n}\n\n// G3: Cada slide debe tener prompt_imagen\nfor (const s of slides) {\n  if (!s.prompt_imagen || s.prompt_imagen.length < 20) {\n    issues.push(`Slide ${s.numero}: prompt de imagen ausente o muy corto`);\n  }\n}\n\n// G4: Prompts NO deben contener estetica tech\nconst forbiddenInPrompts = ['robot', 'circuit', 'neon', 'cyberpunk', 'matrix', 'binary code', 'motherboard', 'generic office'];\nfor (const s of slides) {\n  if (s.prompt_imagen) {\n    const promptLower = s.prompt_imagen.toLowerCase();\n    for (const word of forbiddenInPrompts) {\n      if (promptLower.includes(word)) {\n        issues.push(`Slide ${s.numero}: prompt contiene \"${word}\" (PROHIBIDO en Aura Studio)`);\n        // Auto-fix: remover la palabra\n        s.prompt_imagen = s.prompt_imagen.replace(new RegExp(word, 'gi'), 'natural elements');\n      }\n    }\n  }\n}\n\n// G5: Debe tener caption\nif (!carousel.caption || carousel.caption.length < 10) {\n  issues.push('Caption ausente o muy corto');\n}\n\n// G6: CTA debe ser uno de los permitidos\nconst allowedCTAs = ['comenta', 'guarda', 'comparte'];\nif (carousel.cta && !allowedCTAs.includes(carousel.cta.toLowerCase())) {\n  carousel.cta = 'comenta'; // Auto-fix\n  issues.push('CTA ajustado a \"comenta\" (no era uno de los permitidos)');\n}\n\n// G7: Hashtags deben incluir #AuraStudio y #WorkFastLiveSlow\nif (carousel.hashtags && Array.isArray(carousel.hashtags)) {\n  if (!carousel.hashtags.some(h => h.toLowerCase().includes('aurastudio'))) {\n    carousel.hashtags.unshift('#AuraStudio');\n  }\n  if (!carousel.hashtags.some(h => h.toLowerCase().includes('workfastliveslow'))) {\n    carousel.hashtags.splice(1, 0, '#WorkFastLiveSlow');\n  }\n}\n\ncarousel.guardrail_status = issues.length === 0 ? 'APROBADO' : 'CON_OBSERVACIONES';\ncarousel.guardrail_issues = issues;\n\n// Formatear mensaje de Telegram\nlet tgMessage = '🎨 *CARRUSEL GENERADO*\\n\\n';\ntgMessage += '📑 *Slides:*\\n';\nfor (const s of slides) {\n  tgMessage += `${s.numero}. [${s.tipo}] ${s.titulo}\\n`;\n  if (s.texto) tgMessage += `   ${s.texto.substring(0, 80)}...\\n`;\n}\ntgMessage += `\\n✍️ *Caption:*\\n${carousel.caption}\\n`;\ntgMessage += `\\n#️⃣ *Hashtags:* ${(carousel.hashtags || []).join(' ')}\\n`;\ntgMessage += `\\n🎵 *Musica:* ${carousel.musica_sugerida || 'No sugerida'}\\n`;\ntgMessage += `🎯 *CTA:* ${carousel.cta}\\n`;\ntgMessage += `📱 *Plataforma:* ${carousel.plataforma_ideal || 'ambas'}\\n`;\n\nif (issues.length > 0) {\n  tgMessage += `\\n⚠️ *Observaciones Guardrails:*\\n`;\n  issues.forEach(i => { tgMessage += `  • ${i}\\n`; });\n}\n\ntgMessage += `\\n---\\n`;\ntgMessage += `✅ Escribe *LISTO* para guardar\\n`;\ntgMessage += `🔄 Escribe *REGENERAR* para nuevo intento`;\n\nreturn [{\n  json: {\n    chat_id: prevData.chat_id,\n    carousel: carousel,\n    carousel_json: JSON.stringify(carousel),\n    telegram_message: tgMessage,\n    article: prevData.article\n  }\n}];"
+      },
+      "id": "guardrails-carousel",
+      "name": "Guardrails Carrusel",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2160, 500]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": { "value": "SPREADSHEET_ID_AQUI", "__rl": true },
+        "sheetName": { "value": "estado", "__rl": true },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "chat_id": "={{ $json.chat_id }}",
+            "articulo_actual_link": "={{ $json.article.link }}",
+            "articulo_actual_title": "={{ $json.article.title }}",
+            "carrusel_actual": "={{ $json.carousel_json }}",
+            "fase": "esperando_revision",
+            "updated_at": "={{ $now.toISO() }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "gs-save-carousel",
+      "name": "GS Guardar Carrusel",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2400, 500],
+      "credentials": {
+        "googleSheetsOAuth2Api": { "id": "CONFIGURAR", "name": "Google Sheets OAuth" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.telegram_message }}",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tg-send-carousel",
+      "name": "TG Enviar Carrusel",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2640, 500],
+      "credentials": {
+        "telegramApi": { "id": "CONFIGURAR", "name": "Telegram Bot" }
+      }
+    },
+
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": { "value": "SPREADSHEET_ID_AQUI", "__rl": true },
+        "sheetName": { "value": "estado", "__rl": true },
+        "options": {}
+      },
+      "id": "gs-read-estado-no",
+      "name": "GS Leer Estado NO",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [720, 800],
+      "credentials": {
+        "googleSheetsOAuth2Api": { "id": "CONFIGURAR", "name": "Google Sheets OAuth" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": { "value": "SPREADSHEET_ID_AQUI", "__rl": true },
+        "sheetName": { "value": "articulos", "__rl": true },
+        "options": {}
+      },
+      "id": "gs-read-articulos-no",
+      "name": "GS Leer Articulos NO",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [720, 960],
+      "credentials": {
+        "googleSheetsOAuth2Api": { "id": "CONFIGURAR", "name": "Google Sheets OAuth" }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "id": "merge-no",
+      "name": "Merge NO Data",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [960, 870]
+    },
+    {
+      "parameters": {
+        "jsCode": "// =============================================\n// DESCARTAR articulo actual + buscar siguiente\n// =============================================\nconst items = $input.all();\nconst chatId = $('Router Comandos').first().json.message?.chat?.id || '';\n\nlet estado = null;\nconst articulos = [];\n\nfor (const item of items) {\n  if (item.json.fase) {\n    estado = item.json;\n  } else if (item.json.link) {\n    articulos.push(item.json);\n  }\n}\n\nif (!estado || !estado.articulo_actual_link) {\n  return [{ json: { _error: true, chat_id: chatId, message: '⚠️ No hay articulo actual. Usa EXTRAER.' } }];\n}\n\n// Encontrar siguiente mejor articulo con estado='nuevo'\nconst available = articulos\n  .filter(a => a.estado === 'nuevo' && a.link !== estado.articulo_actual_link)\n  .sort((a, b) => (parseInt(b.score) || 0) - (parseInt(a.score) || 0));\n\nconst next = available[0] || null;\n\nconst updates = {\n  discard_link: estado.articulo_actual_link,\n  chat_id: chatId\n};\n\nif (next) {\n  const datosClaveText = next.datos_clave\n    ? next.datos_clave.split(' | ').map(d => '  • ' + d).join('\\n')\n    : '  (sin datos clave)';\n\n  updates.next_article = next;\n  updates.new_estado = {\n    chat_id: chatId,\n    articulo_actual_link: next.link,\n    articulo_actual_title: next.title,\n    carrusel_actual: '',\n    fase: 'esperando_aprobacion',\n    updated_at: new Date().toISOString()\n  };\n  updates.telegram_message = `❌ Articulo descartado.\\n\\n` +\n    `🔔 *SIGUIENTE ARTICULO*\\n\\n` +\n    `📰 *${next.title}*\\n\\n` +\n    `⭐ Score: ${next.score}/100\\n` +\n    `📂 Categoria: ${next.categoria}\\n` +\n    `🔗 Fuente: ${next.source}\\n\\n` +\n    `📝 *Resumen:*\\n${next.resumen}\\n\\n` +\n    `📊 *Datos clave:*\\n${datosClaveText}\\n\\n` +\n    `---\\n` +\n    `✅ *SI* | ❌ *NO* | ⏭️ *SKIP*`;\n} else {\n  updates.telegram_message = '📭 No hay mas articulos disponibles. Usa EXTRAER para buscar nuevos.';\n  updates.new_estado = {\n    chat_id: chatId,\n    articulo_actual_link: '',\n    articulo_actual_title: '',\n    carrusel_actual: '',\n    fase: 'idle',\n    updated_at: new Date().toISOString()\n  };\n}\n\nreturn [{ json: updates }];"
+      },
+      "id": "process-no",
+      "name": "Procesar NO",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 870]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": { "value": "SPREADSHEET_ID_AQUI", "__rl": true },
+        "sheetName": { "value": "estado", "__rl": true },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "chat_id": "={{ $json.new_estado.chat_id }}",
+            "articulo_actual_link": "={{ $json.new_estado.articulo_actual_link }}",
+            "articulo_actual_title": "={{ $json.new_estado.articulo_actual_title }}",
+            "carrusel_actual": "={{ $json.new_estado.carrusel_actual }}",
+            "fase": "={{ $json.new_estado.fase }}",
+            "updated_at": "={{ $json.new_estado.updated_at }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "gs-update-no",
+      "name": "GS Actualizar NO",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1440, 870],
+      "credentials": {
+        "googleSheetsOAuth2Api": { "id": "CONFIGURAR", "name": "Google Sheets OAuth" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.telegram_message }}",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tg-send-no",
+      "name": "TG Respuesta NO",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1680, 870],
+      "credentials": {
+        "telegramApi": { "id": "CONFIGURAR", "name": "Telegram Bot" }
+      }
+    },
+
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": { "value": "SPREADSHEET_ID_AQUI", "__rl": true },
+        "sheetName": { "value": "estado", "__rl": true },
+        "options": {}
+      },
+      "id": "gs-read-estado-skip",
+      "name": "GS Leer Estado SKIP",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [720, 1150],
+      "credentials": {
+        "googleSheetsOAuth2Api": { "id": "CONFIGURAR", "name": "Google Sheets OAuth" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": { "value": "SPREADSHEET_ID_AQUI", "__rl": true },
+        "sheetName": { "value": "articulos", "__rl": true },
+        "options": {}
+      },
+      "id": "gs-read-articulos-skip",
+      "name": "GS Leer Articulos SKIP",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [720, 1310],
+      "credentials": {
+        "googleSheetsOAuth2Api": { "id": "CONFIGURAR", "name": "Google Sheets OAuth" }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "id": "merge-skip",
+      "name": "Merge SKIP Data",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [960, 1220]
+    },
+    {
+      "parameters": {
+        "jsCode": "// =============================================\n// SKIP: Buscar siguiente SIN descartar el actual\n// =============================================\nconst items = $input.all();\nconst chatId = $('Router Comandos').first().json.message?.chat?.id || '';\n\nlet estado = null;\nconst articulos = [];\n\nfor (const item of items) {\n  if (item.json.fase) {\n    estado = item.json;\n  } else if (item.json.link) {\n    articulos.push(item.json);\n  }\n}\n\nif (!estado) {\n  return [{ json: { chat_id: chatId, telegram_message: '⚠️ No hay estado activo. Usa EXTRAER.', new_estado: { chat_id: chatId, fase: 'idle', updated_at: new Date().toISOString(), articulo_actual_link: '', articulo_actual_title: '', carrusel_actual: '' } } }];\n}\n\nconst available = articulos\n  .filter(a => a.estado === 'nuevo' && a.link !== estado.articulo_actual_link)\n  .sort((a, b) => (parseInt(b.score) || 0) - (parseInt(a.score) || 0));\n\nconst next = available[0] || null;\n\nif (next) {\n  const datosClaveText = next.datos_clave\n    ? next.datos_clave.split(' | ').map(d => '  • ' + d).join('\\n')\n    : '';\n\n  return [{\n    json: {\n      chat_id: chatId,\n      new_estado: {\n        chat_id: chatId,\n        articulo_actual_link: next.link,\n        articulo_actual_title: next.title,\n        carrusel_actual: '',\n        fase: 'esperando_aprobacion',\n        updated_at: new Date().toISOString()\n      },\n      telegram_message: `⏭️ Siguiente articulo:\\n\\n📰 *${next.title}*\\n\\n⭐ Score: ${next.score}/100\\n📂 ${next.categoria}\\n🔗 ${next.source}\\n\\n📝 ${next.resumen}\\n\\n📊 *Datos clave:*\\n${datosClaveText}\\n\\n---\\n✅ *SI* | ❌ *NO* | ⏭️ *SKIP*`\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    new_estado: { chat_id: chatId, fase: 'idle', updated_at: new Date().toISOString(), articulo_actual_link: '', articulo_actual_title: '', carrusel_actual: '' },\n    telegram_message: '📭 No hay mas articulos nuevos. Usa EXTRAER.'\n  }\n}];"
+      },
+      "id": "process-skip",
+      "name": "Procesar SKIP",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 1220]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": { "value": "SPREADSHEET_ID_AQUI", "__rl": true },
+        "sheetName": { "value": "estado", "__rl": true },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "chat_id": "={{ $json.new_estado.chat_id }}",
+            "articulo_actual_link": "={{ $json.new_estado.articulo_actual_link }}",
+            "articulo_actual_title": "={{ $json.new_estado.articulo_actual_title }}",
+            "carrusel_actual": "={{ $json.new_estado.carrusel_actual }}",
+            "fase": "={{ $json.new_estado.fase }}",
+            "updated_at": "={{ $json.new_estado.updated_at }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "gs-update-skip",
+      "name": "GS Actualizar SKIP",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1440, 1220],
+      "credentials": {
+        "googleSheetsOAuth2Api": { "id": "CONFIGURAR", "name": "Google Sheets OAuth" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.telegram_message }}",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tg-send-skip",
+      "name": "TG Respuesta SKIP",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1680, 1220],
+      "credentials": {
+        "telegramApi": { "id": "CONFIGURAR", "name": "Telegram Bot" }
+      }
+    },
+
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": { "value": "SPREADSHEET_ID_AQUI", "__rl": true },
+        "sheetName": { "value": "estado", "__rl": true },
+        "options": {}
+      },
+      "id": "gs-read-estado-listo",
+      "name": "GS Leer Estado LISTO",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [720, 1500],
+      "credentials": {
+        "googleSheetsOAuth2Api": { "id": "CONFIGURAR", "name": "Google Sheets OAuth" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// =============================================\n// LISTO: Guardar carrusel final\n// Actualizar Context Graph con nueva publicacion\n// =============================================\nconst estado = $input.first().json;\nconst chatId = $('Router Comandos').first().json.message?.chat?.id || estado.chat_id || '';\n\nif (!estado.carrusel_actual || estado.fase !== 'esperando_revision') {\n  return [{ json: { _error: true, chat_id: chatId, message: '⚠️ No hay carrusel pendiente de revision. Genera uno primero con SI.' } }];\n}\n\nlet carousel;\ntry {\n  carousel = JSON.parse(estado.carrusel_actual);\n} catch(e) {\n  carousel = { error: 'No se pudo parsear carrusel guardado' };\n}\n\n// Preparar actualizacion del Context Graph\nconst contextUpdate = {\n  fecha: new Date().toISOString(),\n  articulo_title: estado.articulo_actual_title,\n  articulo_link: estado.articulo_actual_link,\n  slides_count: carousel.slides?.length || 0,\n  hashtags: carousel.hashtags || [],\n  plataforma: carousel.plataforma_ideal || 'ambas',\n  cta: carousel.cta || ''\n};\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    articulo_link: estado.articulo_actual_link,\n    context_update: contextUpdate,\n    carousel: carousel,\n    clear_estado: {\n      chat_id: chatId,\n      articulo_actual_link: '',\n      articulo_actual_title: '',\n      carrusel_actual: '',\n      fase: 'idle',\n      updated_at: new Date().toISOString()\n    }\n  }\n}];"
+      },
+      "id": "process-listo",
+      "name": "Procesar LISTO",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [960, 1500]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": { "value": "SPREADSHEET_ID_AQUI", "__rl": true },
+        "sheetName": { "value": "estado", "__rl": true },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "chat_id": "={{ $json.clear_estado.chat_id }}",
+            "articulo_actual_link": "",
+            "articulo_actual_title": "",
+            "carrusel_actual": "",
+            "fase": "idle",
+            "updated_at": "={{ $now.toISO() }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "gs-clear-estado",
+      "name": "GS Limpiar Estado",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1200, 1500],
+      "credentials": {
+        "googleSheetsOAuth2Api": { "id": "CONFIGURAR", "name": "Google Sheets OAuth" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": { "value": "SPREADSHEET_ID_AQUI", "__rl": true },
+        "sheetName": { "value": "context_graph", "__rl": true },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "fecha": "={{ $json.context_update.fecha }}",
+            "articulo_title": "={{ $json.context_update.articulo_title }}",
+            "articulo_link": "={{ $json.context_update.articulo_link }}",
+            "slides_count": "={{ $json.context_update.slides_count }}",
+            "hashtags": "={{ $json.context_update.hashtags.join(', ') }}",
+            "plataforma": "={{ $json.context_update.plataforma }}",
+            "cta": "={{ $json.context_update.cta }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "gs-update-context-graph",
+      "name": "GS Actualizar Context Graph",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1200, 1660],
+      "credentials": {
+        "googleSheetsOAuth2Api": { "id": "CONFIGURAR", "name": "Google Sheets OAuth" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $json.chat_id }}",
+        "text": "✅ *Carrusel guardado exitosamente*\n\n🌿 Aura Studio - Work fast, live slow\n\n📰 Articulo: {{ $json.context_update.articulo_title }}\n📊 Slides: {{ $json.context_update.slides_count }}\n📱 Plataforma: {{ $json.context_update.plataforma }}\n\nContext Graph actualizado ✅\n\nUsa *EXTRAER* para buscar nuevos articulos.",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tg-saved",
+      "name": "TG Carrusel Guardado",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1440, 1500],
+      "credentials": {
+        "telegramApi": { "id": "CONFIGURAR", "name": "Telegram Bot" }
+      }
+    },
+
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": { "value": "SPREADSHEET_ID_AQUI", "__rl": true },
+        "sheetName": { "value": "estado", "__rl": true },
+        "options": {}
+      },
+      "id": "gs-read-estado-regen",
+      "name": "GS Leer Estado REGEN",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [720, 1850],
+      "credentials": {
+        "googleSheetsOAuth2Api": { "id": "CONFIGURAR", "name": "Google Sheets OAuth" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": { "value": "SPREADSHEET_ID_AQUI", "__rl": true },
+        "sheetName": { "value": "articulos", "__rl": true },
+        "options": {}
+      },
+      "id": "gs-read-articulos-regen",
+      "name": "GS Leer Articulo REGEN",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [720, 2010],
+      "credentials": {
+        "googleSheetsOAuth2Api": { "id": "CONFIGURAR", "name": "Google Sheets OAuth" }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "id": "merge-regen",
+      "name": "Merge REGEN Data",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [960, 1920]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Preparar regeneracion del carrusel\nconst items = $input.all();\nconst chatId = $('Router Comandos').first().json.message?.chat?.id || '';\n\nlet estado = null;\nconst articulos = [];\n\nfor (const item of items) {\n  if (item.json.fase) estado = item.json;\n  else if (item.json.link) articulos.push(item.json);\n}\n\nif (!estado || !estado.articulo_actual_link) {\n  return [{ json: { _error: true, chat_id: chatId, message: '⚠️ No hay articulo activo. Usa EXTRAER.' } }];\n}\n\nconst article = articulos.find(a => a.link === estado.articulo_actual_link) || { title: estado.articulo_actual_title, link: estado.articulo_actual_link };\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    article,\n    context_graph: { philosophy: 'Work fast, live slow', restricciones: ['Tono reflexivo y humano', 'NO tech bros', 'Naturaleza latinoamericana'] },\n    rag_brand: { nombre: 'Aura Studio', estetica: 'cinematografica editorial, naturaleza latina, golden hour' }\n  }\n}];"
+      },
+      "id": "prep-regen",
+      "name": "Preparar Regeneracion",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 1920]
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $json.chat_id }}",
+        "text": "🔄 *Regenerando carrusel...*\n\nAplicando variacion creativa para: {{ $json.article.title }}",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tg-regenerating",
+      "name": "TG Regenerando",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1440, 1920],
+      "credentials": {
+        "telegramApi": { "id": "CONFIGURAR", "name": "Telegram Bot" }
+      }
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "Eres el creador de contenido de AURA STUDIO. Genera una VERSION DIFERENTE del carrusel anterior.\n\nIDENTIDAD: Studio de pensamiento estrategico. \"Work fast, live slow\"\nTONO: Reflexivo, sofisticado, humano.\nESTETICA: Fotografia cinematografica editorial, naturaleza latinoamericana (frailejones, monstera, frutas tropicales, paisajes andinos), golden hour, paleta de verdes profundos/crema/beige/dorados.\nEVITAR: Tech fria, robots, circuitos, neon.\nTIPO: Kaneda Gothic. CTA: comenta/guarda/comparte.\n\nEsta vez usa un ANGULO DIFERENTE:\n- Si antes fue educativo, hazlo narrativo/storytelling\n- Si fue datos, hazlo mas reflexivo/filosofico\n- Cambia las metaforas visuales de naturaleza\n- Experimenta con un hook completamente diferente\n\nResponde SOLO JSON valido (mismo formato que antes):\n{\"slides\": [{\"numero\": 1, \"tipo\": \"portada\", \"titulo\": \"...\", \"subtitulo\": \"\", \"texto\": \"\", \"prompt_imagen\": \"...\", \"nota_diseno\": \"...\"}], \"caption\": \"...\", \"hashtags\": [], \"cta\": \"...\", \"musica_sugerida\": \"...\", \"plataforma_ideal\": \"...\", \"notas_produccion\": \"...\"}"
+            },
+            {
+              "role": "user",
+              "content": "=Regenera carrusel para:\nTitulo: {{ $json.article.title }}\nResumen: {{ $json.article.resumen || $json.article.description || 'Usar titulo como base' }}\nCategoria: {{ $json.article.categoria || 'IA' }}\n\nHaz una version COMPLETAMENTE diferente a la anterior. Responde SOLO JSON."
+            }
+          ]
+        },
+        "options": { "temperature": 0.9, "maxTokens": 4000 }
+      },
+      "id": "ai-regen",
+      "name": "AI Regenerar Carrusel",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.8,
+      "position": [1680, 1920],
+      "credentials": {
+        "openAiApi": { "id": "CONFIGURAR", "name": "OpenAI API" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Guardrails para carrusel regenerado (misma logica)\nconst aiResponse = $input.first().json;\nconst prevData = $('Preparar Regeneracion').first().json;\n\nlet carousel;\ntry {\n  const content = aiResponse.choices?.[0]?.message?.content || aiResponse.message?.content || aiResponse.text || '';\n  const jsonMatch = content.match(/\\{[\\s\\S]*\\}/);\n  if (!jsonMatch) throw new Error('No JSON');\n  carousel = JSON.parse(jsonMatch[0]);\n} catch (e) {\n  return [{ json: { _error: true, chat_id: prevData.chat_id, message: '⚠️ Error regenerando. Intenta de nuevo.' } }];\n}\n\n// Guardrails basicos\nconst forbidden = ['robot', 'circuit', 'neon', 'cyberpunk', 'generic office'];\nfor (const s of (carousel.slides || [])) {\n  if (s.prompt_imagen) {\n    for (const w of forbidden) {\n      s.prompt_imagen = s.prompt_imagen.replace(new RegExp(w, 'gi'), 'tropical nature');\n    }\n  }\n}\n\nif (carousel.hashtags && !carousel.hashtags.some(h => h.includes('AuraStudio'))) {\n  carousel.hashtags.unshift('#AuraStudio');\n}\n\nlet msg = '🔄 *CARRUSEL REGENERADO*\\n\\n📑 *Slides:*\\n';\nfor (const s of (carousel.slides || [])) {\n  msg += `${s.numero}. [${s.tipo}] ${s.titulo}\\n`;\n}\nmsg += `\\n✍️ *Caption:* ${carousel.caption}\\n`;\nmsg += `#️⃣ ${(carousel.hashtags || []).join(' ')}\\n`;\nmsg += `🎵 ${carousel.musica_sugerida || '-'}\\n🎯 ${carousel.cta}\\n`;\nmsg += `\\n---\\n✅ *LISTO* para guardar | 🔄 *REGENERAR* de nuevo`;\n\nreturn [{ json: { chat_id: prevData.chat_id, carousel_json: JSON.stringify(carousel), telegram_message: msg, article: prevData.article } }];"
+      },
+      "id": "guardrails-regen",
+      "name": "Guardrails Regeneracion",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1920, 1920]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": { "value": "SPREADSHEET_ID_AQUI", "__rl": true },
+        "sheetName": { "value": "estado", "__rl": true },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "chat_id": "={{ $json.chat_id }}",
+            "carrusel_actual": "={{ $json.carousel_json }}",
+            "fase": "esperando_revision",
+            "updated_at": "={{ $now.toISO() }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "gs-save-regen",
+      "name": "GS Guardar Regenerado",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2160, 1920],
+      "credentials": {
+        "googleSheetsOAuth2Api": { "id": "CONFIGURAR", "name": "Google Sheets OAuth" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.telegram_message }}",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tg-send-regen",
+      "name": "TG Enviar Regenerado",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2400, 1920],
+      "credentials": {
+        "telegramApi": { "id": "CONFIGURAR", "name": "Telegram Bot" }
+      }
+    },
+
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $json.message.chat.id }}",
+        "text": "🤖 *Comando no reconocido*\n\nComandos disponibles:\n\n📥 *EXTRAER* - Buscar articulos nuevos\n✅ *SI* - Aprobar articulo y generar carrusel\n❌ *NO* - Descartar articulo actual\n⏭️ *SKIP* - Ver siguiente articulo\n✅ *LISTO* - Guardar carrusel final\n🔄 *REGENERAR* - Regenerar carrusel\n\n🌿 _Aura Studio - Work fast, live slow_",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tg-unknown",
+      "name": "TG Comando Desconocido",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [720, 2200],
+      "credentials": {
+        "telegramApi": { "id": "CONFIGURAR", "name": "Telegram Bot" }
+      }
+    },
+
+    {
+      "parameters": {
+        "content": "## CONFIGURAR ANTES DE USAR\n\n1. Reemplazar SPREADSHEET_ID_AQUI con tu ID de Google Sheets\n2. Crear hojas: articulos, estado, context_graph\n3. Configurar credenciales: Telegram Bot, Google Sheets OAuth, OpenAI API\n4. Cambiar CONFIGURAR_TU_CHAT_ID en Schedule Bridge\n\n## Hojas necesarias:\n**articulos:** title, link, source, pubDate, description, score, categoria, resumen, datos_clave, tipo_sugerido, estado, extractedAt\n**estado:** chat_id, articulo_actual_link, articulo_actual_title, carrusel_actual, fase, updated_at\n**context_graph:** fecha, articulo_title, articulo_link, slides_count, hashtags, plataforma, cta"
+      },
+      "id": "sticky-config",
+      "name": "Sticky Note Config",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-200, 600]
+    },
+    {
+      "parameters": {
+        "content": "## GUARDRAILS IMPLEMENTADOS\n\n**Scoring (post-AI):**\n- Score forzado a rango 1-100\n- Categoria validada contra lista\n- Resumen minimo requerido\n- Fallback si AI no retorna JSON\n\n**Carrusel (post-AI):**\n- 4-10 slides requeridos\n- Hook max 12 palabras\n- Prompt de imagen obligatorio\n- Palabras prohibidas en prompts (robot, circuit, neon, etc)\n- Auto-fix: reemplaza prohibidas por 'natural elements'\n- CTA validado (comenta/guarda/comparte)\n- Hashtags obligatorios (#AuraStudio, #WorkFastLiveSlow)\n- Caption minimo 10 chars"
+      },
+      "id": "sticky-guardrails",
+      "name": "Sticky Note Guardrails",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-200, 1200]
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          { "node": "Router Comandos", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Schedule Domingo 8PM": {
+      "main": [
+        [
+          { "node": "Schedule Bridge", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Schedule Bridge": {
+      "main": [
+        [
+          { "node": "Router Comandos", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Router Comandos": {
+      "main": [
+        [
+          { "node": "TG Extrayendo", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "GS Leer Estado SI", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "GS Leer Estado NO", "type": "main", "index": 0 },
+          { "node": "GS Leer Articulos NO", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "GS Leer Estado SKIP", "type": "main", "index": 0 },
+          { "node": "GS Leer Articulos SKIP", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "GS Leer Estado LISTO", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "GS Leer Estado REGEN", "type": "main", "index": 0 },
+          { "node": "GS Leer Articulo REGEN", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "TG Comando Desconocido", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+
+    "TG Extrayendo": {
+      "main": [
+        [
+          { "node": "Definir Fuentes RSS", "type": "main", "index": 0 },
+          { "node": "GS Leer Articulos Existentes", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Definir Fuentes RSS": {
+      "main": [
+        [
+          { "node": "Fetch RSS Feeds", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Fetch RSS Feeds": {
+      "main": [
+        [
+          { "node": "Parsear RSS", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Parsear RSS": {
+      "main": [
+        [
+          { "node": "Merge RSS + Sheets", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "GS Leer Articulos Existentes": {
+      "main": [
+        [
+          { "node": "Merge RSS + Sheets", "type": "main", "index": 1 }
+        ]
+      ]
+    },
+    "Merge RSS + Sheets": {
+      "main": [
+        [
+          { "node": "Filter + Context Graph + RAG", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Filter + Context Graph + RAG": {
+      "main": [
+        [
+          { "node": "Hay Articulos Nuevos?", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Hay Articulos Nuevos?": {
+      "main": [
+        [
+          { "node": "AI Puntuar Articulos", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "TG No Hay Nuevos", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "AI Puntuar Articulos": {
+      "main": [
+        [
+          { "node": "Guardrails Scoring", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Guardrails Scoring": {
+      "main": [
+        [
+          { "node": "GS Guardar Articulos", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "GS Guardar Articulos": {
+      "main": [
+        [
+          { "node": "Preparar Estado + Mensaje", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Preparar Estado + Mensaje": {
+      "main": [
+        [
+          { "node": "GS Actualizar Estado", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "GS Actualizar Estado": {
+      "main": [
+        [
+          { "node": "TG Enviar Articulo", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+
+    "GS Leer Estado SI": {
+      "main": [
+        [
+          { "node": "Validar Estado SI", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Validar Estado SI": {
+      "main": [
+        [
+          { "node": "GS Leer Articulo Aprobado", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "GS Leer Articulo Aprobado": {
+      "main": [
+        [
+          { "node": "Preparar Prompt Carrusel", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Preparar Prompt Carrusel": {
+      "main": [
+        [
+          { "node": "TG Generando Carrusel", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "TG Generando Carrusel": {
+      "main": [
+        [
+          { "node": "AI Generar Carrusel", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "AI Generar Carrusel": {
+      "main": [
+        [
+          { "node": "Guardrails Carrusel", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Guardrails Carrusel": {
+      "main": [
+        [
+          { "node": "GS Guardar Carrusel", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "GS Guardar Carrusel": {
+      "main": [
+        [
+          { "node": "TG Enviar Carrusel", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+
+    "GS Leer Estado NO": {
+      "main": [
+        [
+          { "node": "Merge NO Data", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "GS Leer Articulos NO": {
+      "main": [
+        [
+          { "node": "Merge NO Data", "type": "main", "index": 1 }
+        ]
+      ]
+    },
+    "Merge NO Data": {
+      "main": [
+        [
+          { "node": "Procesar NO", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Procesar NO": {
+      "main": [
+        [
+          { "node": "GS Actualizar NO", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "GS Actualizar NO": {
+      "main": [
+        [
+          { "node": "TG Respuesta NO", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+
+    "GS Leer Estado SKIP": {
+      "main": [
+        [
+          { "node": "Merge SKIP Data", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "GS Leer Articulos SKIP": {
+      "main": [
+        [
+          { "node": "Merge SKIP Data", "type": "main", "index": 1 }
+        ]
+      ]
+    },
+    "Merge SKIP Data": {
+      "main": [
+        [
+          { "node": "Procesar SKIP", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Procesar SKIP": {
+      "main": [
+        [
+          { "node": "GS Actualizar SKIP", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "GS Actualizar SKIP": {
+      "main": [
+        [
+          { "node": "TG Respuesta SKIP", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+
+    "GS Leer Estado LISTO": {
+      "main": [
+        [
+          { "node": "Procesar LISTO", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Procesar LISTO": {
+      "main": [
+        [
+          { "node": "GS Limpiar Estado", "type": "main", "index": 0 },
+          { "node": "GS Actualizar Context Graph", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "GS Limpiar Estado": {
+      "main": [
+        [
+          { "node": "TG Carrusel Guardado", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+
+    "GS Leer Estado REGEN": {
+      "main": [
+        [
+          { "node": "Merge REGEN Data", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "GS Leer Articulo REGEN": {
+      "main": [
+        [
+          { "node": "Merge REGEN Data", "type": "main", "index": 1 }
+        ]
+      ]
+    },
+    "Merge REGEN Data": {
+      "main": [
+        [
+          { "node": "Preparar Regeneracion", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Preparar Regeneracion": {
+      "main": [
+        [
+          { "node": "TG Regenerando", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "TG Regenerando": {
+      "main": [
+        [
+          { "node": "AI Regenerar Carrusel", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "AI Regenerar Carrusel": {
+      "main": [
+        [
+          { "node": "Guardrails Regeneracion", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Guardrails Regeneracion": {
+      "main": [
+        [
+          { "node": "GS Guardar Regenerado", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "GS Guardar Regenerado": {
+      "main": [
+        [
+          { "node": "TG Enviar Regenerado", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "tags": [
+    { "name": "aura-studio" },
+    { "name": "content-automation" },
+    { "name": "ai-carousel" }
+  ]
+}

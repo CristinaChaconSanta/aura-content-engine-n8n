@@ -1,0 +1,789 @@
+{
+  "name": "Aura Studio v2 - Content Engine",
+  "nodes": [
+    {
+      "parameters": { "content": "# CAPA 1: INGESTA\nRecoleccion pasiva de datos via RSS.\n4 veces por semana: Lun, Mie, Jue, Sab a las 8AM.\nFuentes: MIT News, MIT Sloan, CIO, Wired (AI/Business/Science)." },
+      "id": "s1", "name": "Nota Capa 1", "type": "n8n-nodes-base.stickyNote", "typeVersion": 1, "position": [-60, -120]
+    },
+    {
+      "parameters": { "content": "# CAPA 2: CEREBRO\n1. Context Graph (memoria dinamica): que se publico, que se descarto.\n2. RAG (conocimiento estatico): identidad de marca, tono, estetica.\n\nORDEN: Context Graph PRIMERO → RAG DESPUES." },
+      "id": "s2", "name": "Nota Capa 2", "type": "n8n-nodes-base.stickyNote", "typeVersion": 1, "position": [1140, -120]
+    },
+    {
+      "parameters": { "content": "# CAPA 3: PRODUCCION\nGuardrails validan el output del AI.\nSe actualiza la memoria.\nSe envia por Telegram para aprobacion humana." },
+      "id": "s3", "name": "Nota Capa 3", "type": "n8n-nodes-base.stickyNote", "typeVersion": 1, "position": [2580, -120]
+    },
+    {
+      "parameters": { "content": "# APROBACION HUMANA\nTelegram Trigger escucha comandos:\nAPROBAR → guarda y actualiza memoria\nRECHAZAR → descarta y busca siguiente\nREGENERAR → nueva version del carrusel" },
+      "id": "s4", "name": "Nota Aprobacion", "type": "n8n-nodes-base.stickyNote", "typeVersion": 1, "position": [-60, 520]
+    },
+    {
+      "parameters": { "content": "# RECAP SEMANAL\nViernes 5PM: recupera noticias descartadas.\nGenera carrusel resumen de la semana.\nLimpia la memoria para reiniciar." },
+      "id": "s5", "name": "Nota Recap", "type": "n8n-nodes-base.stickyNote", "typeVersion": 1, "position": [-60, 1100]
+    },
+
+
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "triggerAtDay": 1, "triggerAtHour": 8 },
+            { "triggerAtDay": 3, "triggerAtHour": 8 },
+            { "triggerAtDay": 4, "triggerAtHour": 8 },
+            { "triggerAtDay": 6, "triggerAtHour": 8 }
+          ]
+        }
+      },
+      "id": "schedule-content",
+      "name": "Trigger 4x Semana",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 60]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ========================================\n// CAPA 1: Definir fuentes RSS\n// ========================================\n// Cada fuente se convierte en un item.\n// El nodo HTTP Request siguiente las procesa una por una.\n\nconst fuentes = [\n  { url: 'https://news.mit.edu/topic/mitartificial-intelligence2-rss.xml', source: 'MIT News AI' },\n  { url: 'https://sloanreview.mit.edu/feed/', source: 'MIT Sloan Review' },\n  { url: 'https://www.cio.com/feed/', source: 'CIO.com' },\n  { url: 'https://www.wired.com/feed/tag/ai/latest/rss', source: 'Wired AI' },\n  { url: 'https://www.wired.com/feed/category/business/latest/rss', source: 'Wired Business' },\n  { url: 'https://www.wired.com/feed/category/science/latest/rss', source: 'Wired Science' }\n];\n\nreturn fuentes.map(f => ({ json: f }));"
+      },
+      "id": "rss-sources",
+      "name": "1. Fuentes RSS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [260, 60]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.url }}",
+        "options": {
+          "response": { "response": { "responseFormat": "text" } },
+          "timeout": 15000
+        }
+      },
+      "id": "fetch-rss",
+      "name": "2. Fetch RSS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [520, 60],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ========================================\n// CAPA 1: Parsear RSS XML a JSON limpio\n// ========================================\nconst items = $input.all();\nconst articulos = [];\n\nfor (const item of items) {\n  const xml = typeof item.json.data === 'string' ? item.json.data : '';\n  const source = item.json.source || 'Desconocido';\n\n  // Extraer cada <item> del RSS\n  const regex = /<item[^>]*>([\\s\\S]*?)<\\/item>/gi;\n  let match;\n\n  while ((match = regex.exec(xml)) !== null) {\n    const block = match[1];\n\n    // Extraer tag individual\n    const tag = (name) => {\n      const m = block.match(new RegExp('<' + name + '[^>]*>([\\\\s\\\\S]*?)</' + name + '>', 'i'));\n      if (!m) return '';\n      return m[1].replace(/<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>/g, '$1').replace(/<[^>]+>/g, '').trim();\n    };\n\n    const title = tag('title');\n    const link = tag('link') || tag('guid');\n    if (!title || !link) continue;\n\n    articulos.push({\n      title,\n      link,\n      description: tag('description').substring(0, 600),\n      pubDate: tag('pubDate'),\n      source\n    });\n  }\n}\n\n// Deduplicar por URL\nconst vistos = new Set();\nconst unicos = articulos.filter(a => {\n  if (vistos.has(a.link)) return false;\n  vistos.add(a.link);\n  return true;\n});\n\nreturn [{ json: { articulos: unicos, total: unicos.length } }];"
+      },
+      "id": "parse-rss",
+      "name": "3. Parsear RSS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [780, 60]
+    },
+
+
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": { "value": "SPREADSHEET_ID", "__rl": true },
+        "sheetName": { "value": "memoria", "__rl": true },
+        "options": {}
+      },
+      "id": "read-context",
+      "name": "4. Leer Context Graph",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1040, 180],
+      "credentials": { "googleSheetsOAuth2Api": { "id": "CONFIG", "name": "Google Sheets" } }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "id": "merge-context",
+      "name": "Merge Datos",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [1300, 60]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ========================================\n// CAPA 2: CONTEXT GRAPH + RAG\n// ========================================\n// Paso 1: Filtrar articulos ya publicados (Context Graph)\n// Paso 2: Cargar identidad de marca (RAG)\n// ORDEN: Context Graph PRIMERO, RAG DESPUES\n// ========================================\n\nconst items = $input.all();\n\n// --- Separar articulos nuevos de memoria existente ---\nlet articulosNuevos = [];\nconst topicosPublicados = new Set();\nconst bufferRechazados = [];\n\nfor (const item of items) {\n  if (item.json.articulos) {\n    articulosNuevos = item.json.articulos;\n  } else if (item.json.topic) {\n    // Viene de Google Sheets: memoria\n    topicosPublicados.add(item.json.topic?.toLowerCase().trim());\n    if (item.json.status === 'rejected') {\n      bufferRechazados.push(item.json);\n    }\n  }\n}\n\n// --- CONTEXT GRAPH: Filtrar duplicados ---\nconst filtrados = articulosNuevos.filter(a => {\n  const titleLower = a.title.toLowerCase();\n  for (const topico of topicosPublicados) {\n    // Si el titulo contiene un topico ya publicado, descartarlo\n    if (topico && titleLower.includes(topico)) return false;\n  }\n  return true;\n});\n\nif (filtrados.length === 0) {\n  return [{ json: { _sin_noticias: true } }];\n}\n\n// --- RAG: Identidad de Marca Aura Studio ---\nconst RAG = {\n  marca: 'Aura Studio',\n  filosofia: 'Work fast, live slow',\n  audiencia: 'Directivos, lideres de industria y entusiastas de tecnologia en Latinoamerica',\n  tono: 'Reflexivo, sofisticado, humano, calido. Habla de tu a tu con el directivo.',\n  prohibido: 'Tech bros, vendedores agresivos, corporativos frios, emojis excesivos, clickbait',\n  estetica: {\n    estilo: 'Fotografia cinematografica editorial',\n    naturaleza: 'Latinoamericana tropical: frailejones de paramo colombiano, monstera, orquideas, cafe, cacao, frutas tropicales, paisajes andinos',\n    luz: 'Golden hour, neblina de montana, soft morning light',\n    paleta: 'Verdes profundos, crema, beige, dorados sutiles',\n    personas: 'Reales, diversas, en conexion con naturaleza',\n    prohibido_visual: 'Robots, circuitos, neon, cyberpunk, oficinas genericas, estetica tech fria'\n  },\n  tipografia: 'Kaneda Gothic Medium/Bold para titulos',\n  cta_permitidos: ['comenta', 'guarda', 'comparte'],\n  formato_carrusel: {\n    slides: '5-6 slides',\n    slide_1: 'HOOK: Pregunta provocadora o dato impactante (max 8 palabras)',\n    slide_2: 'CONTEXTO: Que esta pasando (max 30 palabras)',\n    slide_3: 'IMPACTO: Por que importa al negocio (max 30 palabras)',\n    slide_4: 'DATOS: Evidencia, estadistica o caso real (max 30 palabras)',\n    slide_5: 'FUTURO: Que viene, que hacer ahora (max 30 palabras)',\n    slide_6: 'CTA: Sigue a Aura Studio (opcional, solo si hay 6 slides)'\n  }\n};\n\nreturn [{\n  json: {\n    articulos_filtrados: filtrados.slice(0, 10),\n    total_disponibles: filtrados.length,\n    context_graph: {\n      topicos_publicados: Array.from(topicosPublicados),\n      total_publicados_semana: topicosPublicados.size\n    },\n    rag: RAG\n  }\n}];"
+      },
+      "id": "dedup-rag",
+      "name": "5. Filtrar + RAG Marca",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 60]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "leftValue": "={{ $json._sin_noticias }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notEquals" }
+            }
+          ]
+        }
+      },
+      "id": "if-articles",
+      "name": "Hay Noticias?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1820, 60]
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "TU_CHAT_ID",
+        "text": "📭 No hay noticias nuevas hoy. Todas las fuentes ya fueron procesadas.",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tg-no-news",
+      "name": "TG Sin Noticias",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2080, 200],
+      "credentials": { "telegramApi": { "id": "CONFIG", "name": "Telegram Bot" } }
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "### ROL\nEres AURA, Editora en Jefe de Aura Studio, un medio de pensamiento estrategico en automatizacion con IA.\nFilosofia: \"Work fast, live slow\".\nAudiencia: Directivos, lideres de industria y entusiastas tech en Latinoamerica.\n\n### MEMORIA (CONTEXT GRAPH)\nAntes de escribir, LEE los topicos ya publicados esta semana.\nNO repitas temas cubiertos. Si un tema es similar, busca un angulo diferente.\n\n### IDENTIDAD DE MARCA (RAG)\n- Tono: Reflexivo, sofisticado, humano, calido. Habla de tu a tu.\n- NO: Tech bros, vendedores agresivos, emojis excesivos, clickbait, relleno.\n- Estetica visual para prompts de imagen:\n  SIEMPRE: cinematic editorial photography, naturaleza latinoamericana tropical, luz natural golden hour o neblina de montana, paleta de verdes profundos crema beige dorados sutiles, personas reales diversas.\n  NUNCA: robots, circuitos, neon, cyberpunk, oficinas genericas, estetica tech fria.\n  CREATIVIDAD: Varía los elementos naturales (frailejones, monstera, orquideas, cafe colombiano, cacao, uchuvas, paisajes andinos, costa caribe, selva). No repitas siempre los mismos.\n- Tipografia: Kaneda Gothic Medium/Bold.\n- CTA permitidos: comenta, guarda, comparte.\n\n### TAREA: GENERAR CARRUSEL DE 5-6 SLIDES\n1. Analiza las noticias recibidas.\n2. Selecciona LA MAS relevante para la audiencia.\n3. Genera el carrusel en JSON estricto.\n4. Las noticias NO seleccionadas van al campo rejected_articles.\n\n### FORMATO DE SALIDA (JSON estricto, sin markdown):\n{\n  \"meta\": {\n    \"topic\": \"Titulo corto del tema (3-5 palabras)\",\n    \"source\": \"Nombre de la fuente\",\n    \"source_url\": \"URL del articulo\",\n    \"urgency\": \"High/Medium/Low\"\n  },\n  \"slides\": [\n    {\n      \"number\": 1,\n      \"type\": \"hook\",\n      \"title\": \"Pregunta o dato impactante (max 8 palabras)\",\n      \"body\": \"\",\n      \"image_prompt\": \"cinematic editorial photography, [escena especifica], Latin American tropical nature, [elemento natural concreto], golden hour light, deep greens cream beige subtle gold palette, diverse real people, 1080x1080\"\n    },\n    {\n      \"number\": 2,\n      \"type\": \"context\",\n      \"title\": \"Que esta pasando\",\n      \"body\": \"Explicacion breve max 30 palabras\",\n      \"image_prompt\": \"...\"\n    },\n    {\n      \"number\": 3,\n      \"type\": \"impact\",\n      \"title\": \"Por que importa\",\n      \"body\": \"Impacto en el negocio max 30 palabras\",\n      \"image_prompt\": \"...\"\n    },\n    {\n      \"number\": 4,\n      \"type\": \"data\",\n      \"title\": \"Los datos\",\n      \"body\": \"Estadistica o caso real max 30 palabras\",\n      \"image_prompt\": \"...\"\n    },\n    {\n      \"number\": 5,\n      \"type\": \"future\",\n      \"title\": \"Que sigue\",\n      \"body\": \"Accion o prediccion max 30 palabras\",\n      \"image_prompt\": \"...\"\n    }\n  ],\n  \"caption\": \"Caption para Instagram/LinkedIn max 250 caracteres, sin emojis excesivos\",\n  \"hashtags\": [\"#AuraStudio\", \"#WorkFastLiveSlow\", \"#tag3\", \"#tag4\", \"#tag5\"],\n  \"cta\": \"comenta\",\n  \"rejected_articles\": [\n    {\"title\": \"Titulo\", \"url\": \"URL\", \"reason\": \"Razon breve de rechazo\"}\n  ]\n}"
+            },
+            {
+              "role": "user",
+              "content": "=CONTEXT GRAPH (topicos ya publicados esta semana):\n{{ JSON.stringify($json.context_graph) }}\n\nNOTICIAS DISPONIBLES HOY:\n{{ JSON.stringify($json.articulos_filtrados) }}\n\nIDENTIDAD DE MARCA:\n{{ JSON.stringify($json.rag) }}\n\nSelecciona la mejor noticia y genera el carrusel de 5-6 slides. Responde SOLO con JSON valido."
+            }
+          ]
+        },
+        "options": { "temperature": 0.7, "maxTokens": 3500 }
+      },
+      "id": "ai-editor",
+      "name": "6. Agente Editor",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.8,
+      "position": [2080, -20],
+      "credentials": { "openAiApi": { "id": "CONFIG", "name": "OpenAI" } }
+    },
+
+
+    {
+      "parameters": {
+        "jsCode": "// ========================================\n// CAPA 3: GUARDRAILS\n// ========================================\n// Valida que el AI no alucine ni rompa la marca.\n// Si algo falla, lo corrige automaticamente.\n// ========================================\n\nconst aiRaw = $input.first().json;\n\n// --- Paso 1: Extraer JSON del AI ---\nlet carrusel;\ntry {\n  const content = aiRaw.choices?.[0]?.message?.content\n    || aiRaw.message?.content\n    || aiRaw.text || '';\n  const jsonMatch = content.match(/\\{[\\s\\S]*\\}/);\n  if (!jsonMatch) throw new Error('AI no retorno JSON');\n  carrusel = JSON.parse(jsonMatch[0]);\n} catch (e) {\n  return [{ json: {\n    _error: true,\n    mensaje: 'El AI no genero un JSON valido. Error: ' + e.message\n  }}];\n}\n\nconst problemas = [];\nconst slides = carrusel.slides || [];\n\n// --- G1: Debe tener 5-6 slides ---\nif (slides.length < 5) problemas.push('Menos de 5 slides (' + slides.length + ')');\nif (slides.length > 6) {\n  carrusel.slides = slides.slice(0, 6);\n  problemas.push('Recortado a 6 slides (tenia ' + slides.length + ')');\n}\n\n// --- G2: Hook de portada max 10 palabras ---\nif (slides[0] && slides[0].title) {\n  const palabras = slides[0].title.split(/\\s+/).length;\n  if (palabras > 10) problemas.push('Hook muy largo: ' + palabras + ' palabras');\n}\n\n// --- G3: Body de cada slide max 40 palabras ---\nfor (const s of slides) {\n  if (s.body && s.body.split(/\\s+/).length > 40) {\n    problemas.push('Slide ' + s.number + ': body excede 40 palabras');\n  }\n}\n\n// --- G4: Prompts de imagen NO deben tener estetica tech ---\nconst prohibidas = ['robot', 'circuit', 'neon', 'cyberpunk', 'matrix', 'motherboard', 'generic office', 'binary'];\nfor (const s of slides) {\n  if (s.image_prompt) {\n    const lower = s.image_prompt.toLowerCase();\n    for (const p of prohibidas) {\n      if (lower.includes(p)) {\n        s.image_prompt = s.image_prompt.replace(new RegExp(p, 'gi'), 'tropical nature');\n        problemas.push('Slide ' + s.number + ': removido \"' + p + '\" del prompt');\n      }\n    }\n  }\n}\n\n// --- G5: Hashtags obligatorios ---\nif (!carrusel.hashtags) carrusel.hashtags = [];\nif (!carrusel.hashtags.some(h => h.toLowerCase().includes('aurastudio'))) {\n  carrusel.hashtags.unshift('#AuraStudio');\n}\nif (!carrusel.hashtags.some(h => h.toLowerCase().includes('workfastliveslow'))) {\n  carrusel.hashtags.splice(1, 0, '#WorkFastLiveSlow');\n}\n\n// --- G6: CTA debe ser permitido ---\nconst ctaOk = ['comenta', 'guarda', 'comparte'];\nif (!ctaOk.includes((carrusel.cta || '').toLowerCase())) {\n  carrusel.cta = 'comenta';\n  problemas.push('CTA ajustado a \"comenta\"');\n}\n\n// --- G7: Caption no vacio ---\nif (!carrusel.caption || carrusel.caption.length < 10) {\n  problemas.push('Caption muy corto o ausente');\n}\n\n// --- Construir mensaje Telegram ---\nlet msg = '🎨 *CARRUSEL GENERADO*\\n\\n';\nmsg += '📰 *' + (carrusel.meta?.topic || 'Sin titulo') + '*\\n';\nmsg += '🔗 ' + (carrusel.meta?.source || '') + '\\n';\nmsg += '⚡ Urgencia: ' + (carrusel.meta?.urgency || '-') + '\\n\\n';\nmsg += '📑 *Slides:*\\n';\nfor (const s of carrusel.slides || []) {\n  msg += s.number + '. [' + s.type + '] ' + s.title + '\\n';\n  if (s.body) msg += '   ' + s.body.substring(0, 60) + '\\n';\n}\nmsg += '\\n✍️ *Caption:* ' + (carrusel.caption || '-') + '\\n';\nmsg += '#️⃣ ' + (carrusel.hashtags || []).join(' ') + '\\n';\nmsg += '🎯 CTA: ' + (carrusel.cta || '-') + '\\n';\n\nif (problemas.length > 0) {\n  msg += '\\n⚠️ *Guardrails:*\\n';\n  problemas.forEach(p => { msg += '  • ' + p + '\\n'; });\n}\n\nmsg += '\\n---\\n';\nmsg += '✅ *APROBAR* para publicar\\n';\nmsg += '❌ *RECHAZAR* para descartar\\n';\nmsg += '🔄 *REGENERAR* para nueva version';\n\nreturn [{ json: {\n  carrusel,\n  carrusel_json: JSON.stringify(carrusel),\n  telegram_msg: msg,\n  guardrail_problemas: problemas,\n  rejected: carrusel.rejected_articles || []\n}}];"
+      },
+      "id": "guardrails",
+      "name": "7. Guardrails",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2340, -20]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": { "value": "SPREADSHEET_ID", "__rl": true },
+        "sheetName": { "value": "memoria", "__rl": true },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "topic": "={{ $json.carrusel.meta?.topic || '' }}",
+            "date": "={{ $now.toISO() }}",
+            "source": "={{ $json.carrusel.meta?.source || '' }}",
+            "source_url": "={{ $json.carrusel.meta?.source_url || '' }}",
+            "status": "pending",
+            "angle": "={{ $json.carrusel.slides?.[0]?.title || '' }}",
+            "carrusel_json": "={{ $json.carrusel_json }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "save-context",
+      "name": "8. Guardar en Memoria",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2600, -20],
+      "credentials": { "googleSheetsOAuth2Api": { "id": "CONFIG", "name": "Google Sheets" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Guardar articulos rechazados en buffer para el recap semanal\nconst data = $('7. Guardrails').first().json;\nconst rejected = data.rejected || [];\n\nif (rejected.length === 0) {\n  return [{ json: { _sin_rechazados: true, telegram_msg: data.telegram_msg } }];\n}\n\n// Retornar cada rechazado como item para append a sheets\nconst items = rejected.map(r => ({\n  json: {\n    topic: r.title || '',\n    date: new Date().toISOString(),\n    source: '',\n    source_url: r.url || '',\n    status: 'rejected',\n    angle: r.reason || '',\n    carrusel_json: ''\n  }\n}));\n\n// Agregar el mensaje de telegram al ultimo item\nitems[items.length - 1].json.telegram_msg = data.telegram_msg;\n\nreturn items;"
+      },
+      "id": "prep-rejected",
+      "name": "9. Buffer Rechazados",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2860, -20]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": { "value": "SPREADSHEET_ID", "__rl": true },
+        "sheetName": { "value": "memoria", "__rl": true },
+        "columns": { "mappingMode": "autoMapInputData" },
+        "options": {}
+      },
+      "id": "save-rejected",
+      "name": "10. Guardar Rechazados",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [3120, -20],
+      "credentials": { "googleSheetsOAuth2Api": { "id": "CONFIG", "name": "Google Sheets" } }
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "TU_CHAT_ID",
+        "text": "={{ $json.telegram_msg || $('7. Guardrails').first().json.telegram_msg }}",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tg-carousel",
+      "name": "11. TG Carrusel",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [3380, -20],
+      "credentials": { "telegramApi": { "id": "CONFIG", "name": "Telegram Bot" } }
+    },
+
+
+    {
+      "parameters": { "updates": ["message"] },
+      "id": "tg-trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 700],
+      "credentials": { "telegramApi": { "id": "CONFIG", "name": "Telegram Bot" } }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.message.text.toUpperCase().trim() }}", "rightValue": "APROBAR", "operator": { "type": "string", "operation": "equals" } }] },
+              "renameOutput": true, "outputKey": "APROBAR"
+            },
+            {
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.message.text.toUpperCase().trim() }}", "rightValue": "RECHAZAR", "operator": { "type": "string", "operation": "equals" } }] },
+              "renameOutput": true, "outputKey": "RECHAZAR"
+            },
+            {
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.message.text.toUpperCase().trim() }}", "rightValue": "REGENERAR", "operator": { "type": "string", "operation": "equals" } }] },
+              "renameOutput": true, "outputKey": "REGENERAR"
+            }
+          ]
+        },
+        "options": { "fallbackOutput": "extra" }
+      },
+      "id": "switch-cmd",
+      "name": "Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [260, 700]
+    },
+
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": { "value": "SPREADSHEET_ID", "__rl": true },
+        "sheetName": { "value": "memoria", "__rl": true },
+        "options": {}
+      },
+      "id": "read-approve",
+      "name": "Leer Memoria (Aprobar)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [520, 600],
+      "credentials": { "googleSheetsOAuth2Api": { "id": "CONFIG", "name": "Google Sheets" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Encontrar el ultimo carrusel pendiente y marcarlo como publicado\nconst items = $input.all();\nconst chatId = $('Telegram Trigger').first().json.message?.chat?.id || 'TU_CHAT_ID';\n\n// Buscar el ultimo con status=pending\nconst pendientes = items.filter(i => i.json.status === 'pending');\nconst ultimo = pendientes[pendientes.length - 1];\n\nif (!ultimo) {\n  return [{ json: { chat_id: chatId, msg: '⚠️ No hay carrusel pendiente de aprobacion.' } }];\n}\n\nreturn [{ json: {\n  chat_id: chatId,\n  topic: ultimo.json.topic,\n  row_number: ultimo.json.row_number,\n  msg: '✅ *Carrusel aprobado y guardado*\\n\\n📰 ' + ultimo.json.topic + '\\n\\nContext Graph actualizado. Listo para publicar.\\n\\n🌿 _Work fast, live slow_'\n}}];"
+      },
+      "id": "process-approve",
+      "name": "Procesar Aprobacion",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [780, 600]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": { "value": "SPREADSHEET_ID", "__rl": true },
+        "sheetName": { "value": "memoria", "__rl": true },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "topic": "={{ $json.topic }}",
+            "status": "published"
+          }
+        },
+        "options": {}
+      },
+      "id": "update-published",
+      "name": "Marcar Publicado",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1040, 600],
+      "credentials": { "googleSheetsOAuth2Api": { "id": "CONFIG", "name": "Google Sheets" } }
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $json.chat_id || 'TU_CHAT_ID' }}",
+        "text": "={{ $json.msg }}",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tg-approved",
+      "name": "TG Aprobado",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1300, 600],
+      "credentials": { "telegramApi": { "id": "CONFIG", "name": "Telegram Bot" } }
+    },
+
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": { "value": "SPREADSHEET_ID", "__rl": true },
+        "sheetName": { "value": "memoria", "__rl": true },
+        "options": {}
+      },
+      "id": "read-reject",
+      "name": "Leer Memoria (Rechazar)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [520, 780],
+      "credentials": { "googleSheetsOAuth2Api": { "id": "CONFIG", "name": "Google Sheets" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Marcar ultimo pendiente como descartado\nconst items = $input.all();\nconst chatId = $('Telegram Trigger').first().json.message?.chat?.id || 'TU_CHAT_ID';\nconst pendientes = items.filter(i => i.json.status === 'pending');\nconst ultimo = pendientes[pendientes.length - 1];\n\nif (!ultimo) {\n  return [{ json: { chat_id: chatId, topic: '', msg: '⚠️ No hay carrusel pendiente.' } }];\n}\n\nreturn [{ json: {\n  chat_id: chatId,\n  topic: ultimo.json.topic,\n  msg: '❌ *Carrusel rechazado*\\n\\n📰 ' + ultimo.json.topic + '\\n\\nMovido al buffer de descartes para el recap semanal.\\n\\nEscribe *REGENERAR* si quieres una nueva version.'\n}}];"
+      },
+      "id": "process-reject",
+      "name": "Procesar Rechazo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [780, 780]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": { "value": "SPREADSHEET_ID", "__rl": true },
+        "sheetName": { "value": "memoria", "__rl": true },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": { "topic": "={{ $json.topic }}", "status": "rejected" }
+        },
+        "options": {}
+      },
+      "id": "update-rejected",
+      "name": "Marcar Rechazado",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1040, 780],
+      "credentials": { "googleSheetsOAuth2Api": { "id": "CONFIG", "name": "Google Sheets" } }
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $json.chat_id || 'TU_CHAT_ID' }}",
+        "text": "={{ $json.msg }}",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tg-rejected",
+      "name": "TG Rechazado",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1300, 780],
+      "credentials": { "telegramApi": { "id": "CONFIG", "name": "Telegram Bot" } }
+    },
+
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": { "value": "SPREADSHEET_ID", "__rl": true },
+        "sheetName": { "value": "memoria", "__rl": true },
+        "options": {}
+      },
+      "id": "read-regen",
+      "name": "Leer Memoria (Regen)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [520, 940],
+      "credentials": { "googleSheetsOAuth2Api": { "id": "CONFIG", "name": "Google Sheets" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Recuperar ultimo carrusel para regenerar\nconst items = $input.all();\nconst chatId = $('Telegram Trigger').first().json.message?.chat?.id || 'TU_CHAT_ID';\nconst pendientes = items.filter(i => i.json.status === 'pending' && i.json.carrusel_json);\nconst ultimo = pendientes[pendientes.length - 1];\n\nif (!ultimo) {\n  return [{ json: { chat_id: chatId, _error: true, msg: '⚠️ No hay carrusel para regenerar.' } }];\n}\n\nlet carruselPrev;\ntry { carruselPrev = JSON.parse(ultimo.json.carrusel_json); } catch(e) { carruselPrev = {}; }\n\nreturn [{ json: {\n  chat_id: chatId,\n  topic: ultimo.json.topic,\n  source: ultimo.json.source,\n  source_url: ultimo.json.source_url,\n  carrusel_anterior: carruselPrev\n}}];"
+      },
+      "id": "prep-regen",
+      "name": "Preparar Regeneracion",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [780, 940]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "Eres AURA, Editora en Jefe de Aura Studio. Genera una VERSION COMPLETAMENTE DIFERENTE del carrusel.\n\nCAMBIA:\n- El hook (angulo diferente)\n- Las metaforas visuales (otros elementos naturales)\n- El enfoque (si antes fue datos, ahora storytelling; si antes fue impacto, ahora reflexion)\n\nMANTEN:\n- 5-6 slides\n- Tono reflexivo, sofisticado, humano\n- Estetica: fotografia cinematografica, naturaleza latinoamericana, golden hour\n- NUNCA: robots, circuitos, neon, estetica tech fria\n- Hashtags: #AuraStudio, #WorkFastLiveSlow\n- CTA: comenta/guarda/comparte\n\nResponde SOLO JSON valido con el mismo formato de carrusel."
+            },
+            {
+              "role": "user",
+              "content": "=Regenera este carrusel con un angulo DIFERENTE:\n\nTema: {{ $json.topic }}\nFuente: {{ $json.source }}\n\nVersion anterior (NO repetir):\n{{ JSON.stringify($json.carrusel_anterior) }}\n\nCrea una version fresca. SOLO JSON."
+            }
+          ]
+        },
+        "options": { "temperature": 0.9, "maxTokens": 3500 }
+      },
+      "id": "ai-regen",
+      "name": "AI Regenerar",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.8,
+      "position": [1040, 940],
+      "credentials": { "openAiApi": { "id": "CONFIG", "name": "OpenAI" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Guardrails rapidos para regeneracion\nconst aiRaw = $input.first().json;\nconst prev = $('Preparar Regeneracion').first().json;\n\nlet carrusel;\ntry {\n  const content = aiRaw.choices?.[0]?.message?.content || aiRaw.text || '';\n  const m = content.match(/\\{[\\s\\S]*\\}/);\n  carrusel = JSON.parse(m[0]);\n} catch (e) {\n  return [{ json: { chat_id: prev.chat_id, msg: '⚠️ Error al regenerar. Intenta de nuevo.' } }];\n}\n\n// Guardrails rapidos\nconst prohibidas = ['robot', 'circuit', 'neon', 'cyberpunk', 'generic office'];\nfor (const s of (carrusel.slides || [])) {\n  if (s.image_prompt) {\n    for (const p of prohibidas) {\n      s.image_prompt = s.image_prompt.replace(new RegExp(p, 'gi'), 'tropical nature');\n    }\n  }\n}\nif (!carrusel.hashtags?.some(h => h.includes('AuraStudio'))) {\n  carrusel.hashtags = carrusel.hashtags || [];\n  carrusel.hashtags.unshift('#AuraStudio');\n}\n\nlet msg = '🔄 *CARRUSEL REGENERADO*\\n\\n';\nfor (const s of (carrusel.slides || [])) {\n  msg += s.number + '. [' + s.type + '] ' + s.title + '\\n';\n}\nmsg += '\\n✍️ ' + (carrusel.caption || '') + '\\n';\nmsg += '#️⃣ ' + (carrusel.hashtags || []).join(' ') + '\\n';\nmsg += '\\n---\\n✅ *APROBAR* | ❌ *RECHAZAR* | 🔄 *REGENERAR*';\n\nreturn [{ json: { chat_id: prev.chat_id, topic: prev.topic, carrusel_json: JSON.stringify(carrusel), msg } }];"
+      },
+      "id": "guardrails-regen",
+      "name": "Guardrails Regen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1300, 940]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": { "value": "SPREADSHEET_ID", "__rl": true },
+        "sheetName": { "value": "memoria", "__rl": true },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": { "topic": "={{ $json.topic }}", "carrusel_json": "={{ $json.carrusel_json }}", "status": "pending" }
+        },
+        "options": {}
+      },
+      "id": "save-regen",
+      "name": "Guardar Regenerado",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1560, 940],
+      "credentials": { "googleSheetsOAuth2Api": { "id": "CONFIG", "name": "Google Sheets" } }
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $json.chat_id || 'TU_CHAT_ID' }}",
+        "text": "={{ $json.msg }}",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tg-regen",
+      "name": "TG Regenerado",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1820, 940],
+      "credentials": { "telegramApi": { "id": "CONFIG", "name": "Telegram Bot" } }
+    },
+
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $json.message.chat.id }}",
+        "text": "🤖 Comando no reconocido.\n\n*Comandos:*\n✅ APROBAR - Guardar carrusel\n❌ RECHAZAR - Descartar\n🔄 REGENERAR - Nueva version\n\n🌿 _Aura Studio - Work fast, live slow_",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tg-unknown",
+      "name": "TG Desconocido",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [520, 1040],
+      "credentials": { "telegramApi": { "id": "CONFIG", "name": "Telegram Bot" } }
+    },
+
+
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "triggerAtDay": 5, "triggerAtHour": 17 }
+          ]
+        }
+      },
+      "id": "schedule-recap",
+      "name": "Trigger Recap Viernes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 1280]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": { "value": "SPREADSHEET_ID", "__rl": true },
+        "sheetName": { "value": "memoria", "__rl": true },
+        "options": {}
+      },
+      "id": "read-buffer",
+      "name": "R1. Leer Buffer Descartes",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [260, 1280],
+      "credentials": { "googleSheetsOAuth2Api": { "id": "CONFIG", "name": "Google Sheets" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Filtrar solo los rechazados de esta semana\nconst items = $input.all();\nconst ahora = new Date();\nconst hace7dias = new Date(ahora.getTime() - 7 * 24 * 60 * 60 * 1000);\n\nconst rechazados = items\n  .filter(i => i.json.status === 'rejected')\n  .filter(i => {\n    const fecha = new Date(i.json.date);\n    return fecha >= hace7dias;\n  });\n\nif (rechazados.length === 0) {\n  return [{ json: { _sin_recap: true } }];\n}\n\nconst resumen = rechazados.map(r => ({\n  topic: r.json.topic,\n  source: r.json.source || '',\n  url: r.json.source_url || '',\n  reason: r.json.angle || ''\n}));\n\nreturn [{ json: { rechazados: resumen, total: resumen.length } }];"
+      },
+      "id": "filter-buffer",
+      "name": "R2. Filtrar Rechazados",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [520, 1280]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [{ "leftValue": "={{ $json._sin_recap }}", "rightValue": true, "operator": { "type": "boolean", "operation": "notEquals" } }]
+        }
+      },
+      "id": "if-recap",
+      "name": "Hay Descartes?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [780, 1280]
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "TU_CHAT_ID",
+        "text": "📭 No hay noticias descartadas esta semana para el recap.",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tg-no-recap",
+      "name": "TG Sin Recap",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1040, 1400],
+      "credentials": { "telegramApi": { "id": "CONFIG", "name": "Telegram Bot" } }
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "Eres AURA en modo RECAP SEMANAL.\n\nTu tarea: Analizar las noticias que NO se publicaron esta semana y crear un carrusel resumen.\n\nBusca patrones: Si hubo muchas noticias de un mismo tema, mencionalo.\nNarrativa: \"Lo que te perdiste esta semana en tech\".\n\nMISMAS REGLAS DE MARCA:\n- 5-6 slides, tono reflexivo, estetica Aura Studio\n- Fotografia cinematografica, naturaleza latina, golden hour\n- NUNCA: robots, circuitos, neon, tech fria\n- Hashtags: #AuraStudio, #WorkFastLiveSlow, #RecapSemanal\n- CTA: guarda (para que lo revisen despues)\n\nFormato JSON identico al carrusel normal."
+            },
+            {
+              "role": "user",
+              "content": "=Noticias descartadas esta semana ({{ $json.total }} total):\n\n{{ JSON.stringify($json.rechazados, null, 2) }}\n\nCrea un carrusel recap. SOLO JSON valido."
+            }
+          ]
+        },
+        "options": { "temperature": 0.7, "maxTokens": 3500 }
+      },
+      "id": "ai-recap",
+      "name": "R3. AI Curador Recap",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.8,
+      "position": [1040, 1200],
+      "credentials": { "openAiApi": { "id": "CONFIG", "name": "OpenAI" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Guardrails + formato para recap\nconst aiRaw = $input.first().json;\n\nlet carrusel;\ntry {\n  const content = aiRaw.choices?.[0]?.message?.content || aiRaw.text || '';\n  const m = content.match(/\\{[\\s\\S]*\\}/);\n  carrusel = JSON.parse(m[0]);\n} catch (e) {\n  return [{ json: { msg: '⚠️ Error generando recap. Revisar manualmente.' } }];\n}\n\n// Guardrails basicos\nconst prohibidas = ['robot', 'circuit', 'neon', 'cyberpunk', 'generic office'];\nfor (const s of (carrusel.slides || [])) {\n  if (s.image_prompt) {\n    for (const p of prohibidas) {\n      s.image_prompt = s.image_prompt.replace(new RegExp(p, 'gi'), 'tropical nature');\n    }\n  }\n}\n\nlet msg = '📋 *RECAP SEMANAL GENERADO*\\n\\n';\nmsg += '📰 *' + (carrusel.meta?.topic || 'Lo que te perdiste') + '*\\n\\n';\nfor (const s of (carrusel.slides || [])) {\n  msg += s.number + '. ' + s.title + '\\n';\n}\nmsg += '\\n✍️ ' + (carrusel.caption || '') + '\\n';\nmsg += '\\n---\\n✅ *APROBAR* | ❌ *RECHAZAR* | 🔄 *REGENERAR*';\n\nreturn [{ json: { carrusel_json: JSON.stringify(carrusel), msg } }];"
+      },
+      "id": "guardrails-recap",
+      "name": "R4. Guardrails Recap",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1300, 1200]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": { "value": "SPREADSHEET_ID", "__rl": true },
+        "sheetName": { "value": "memoria", "__rl": true },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "topic": "Recap Semanal",
+            "date": "={{ $now.toISO() }}",
+            "status": "pending",
+            "carrusel_json": "={{ $json.carrusel_json }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "save-recap",
+      "name": "R5. Guardar Recap",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1560, 1200],
+      "credentials": { "googleSheetsOAuth2Api": { "id": "CONFIG", "name": "Google Sheets" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Limpiar memoria semanal: marcar todos los rejected como 'used_in_recap'\nreturn [{ json: { msg: $('R4. Guardrails Recap').first().json.msg, _reset: true } }];"
+      },
+      "id": "reset-week",
+      "name": "R6. Reset Semanal",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1820, 1200]
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "TU_CHAT_ID",
+        "text": "={{ $json.msg }}",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tg-recap",
+      "name": "R7. TG Recap",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2080, 1200],
+      "credentials": { "telegramApi": { "id": "CONFIG", "name": "Telegram Bot" } }
+    }
+  ],
+  "connections": {
+    "Trigger 4x Semana": {
+      "main": [[{ "node": "1. Fuentes RSS", "type": "main", "index": 0 }]]
+    },
+    "1. Fuentes RSS": {
+      "main": [[{ "node": "2. Fetch RSS", "type": "main", "index": 0 }]]
+    },
+    "2. Fetch RSS": {
+      "main": [[{ "node": "3. Parsear RSS", "type": "main", "index": 0 }]]
+    },
+    "3. Parsear RSS": {
+      "main": [[
+        { "node": "Merge Datos", "type": "main", "index": 0 }
+      ]]
+    },
+    "4. Leer Context Graph": {
+      "main": [[{ "node": "Merge Datos", "type": "main", "index": 1 }]]
+    },
+    "Merge Datos": {
+      "main": [[{ "node": "5. Filtrar + RAG Marca", "type": "main", "index": 0 }]]
+    },
+    "5. Filtrar + RAG Marca": {
+      "main": [[{ "node": "Hay Noticias?", "type": "main", "index": 0 }]]
+    },
+    "Hay Noticias?": {
+      "main": [
+        [{ "node": "6. Agente Editor", "type": "main", "index": 0 }],
+        [{ "node": "TG Sin Noticias", "type": "main", "index": 0 }]
+      ]
+    },
+    "6. Agente Editor": {
+      "main": [[{ "node": "7. Guardrails", "type": "main", "index": 0 }]]
+    },
+    "7. Guardrails": {
+      "main": [[{ "node": "8. Guardar en Memoria", "type": "main", "index": 0 }]]
+    },
+    "8. Guardar en Memoria": {
+      "main": [[{ "node": "9. Buffer Rechazados", "type": "main", "index": 0 }]]
+    },
+    "9. Buffer Rechazados": {
+      "main": [[{ "node": "10. Guardar Rechazados", "type": "main", "index": 0 }]]
+    },
+    "10. Guardar Rechazados": {
+      "main": [[{ "node": "11. TG Carrusel", "type": "main", "index": 0 }]]
+    },
+
+    "Trigger 4x Semana_parallel": {
+      "main": [[{ "node": "4. Leer Context Graph", "type": "main", "index": 0 }]]
+    },
+
+    "Telegram Trigger": {
+      "main": [[{ "node": "Router", "type": "main", "index": 0 }]]
+    },
+    "Router": {
+      "main": [
+        [{ "node": "Leer Memoria (Aprobar)", "type": "main", "index": 0 }],
+        [{ "node": "Leer Memoria (Rechazar)", "type": "main", "index": 0 }],
+        [{ "node": "Leer Memoria (Regen)", "type": "main", "index": 0 }],
+        [{ "node": "TG Desconocido", "type": "main", "index": 0 }]
+      ]
+    },
+    "Leer Memoria (Aprobar)": {
+      "main": [[{ "node": "Procesar Aprobacion", "type": "main", "index": 0 }]]
+    },
+    "Procesar Aprobacion": {
+      "main": [[{ "node": "Marcar Publicado", "type": "main", "index": 0 }]]
+    },
+    "Marcar Publicado": {
+      "main": [[{ "node": "TG Aprobado", "type": "main", "index": 0 }]]
+    },
+    "Leer Memoria (Rechazar)": {
+      "main": [[{ "node": "Procesar Rechazo", "type": "main", "index": 0 }]]
+    },
+    "Procesar Rechazo": {
+      "main": [[{ "node": "Marcar Rechazado", "type": "main", "index": 0 }]]
+    },
+    "Marcar Rechazado": {
+      "main": [[{ "node": "TG Rechazado", "type": "main", "index": 0 }]]
+    },
+    "Leer Memoria (Regen)": {
+      "main": [[{ "node": "Preparar Regeneracion", "type": "main", "index": 0 }]]
+    },
+    "Preparar Regeneracion": {
+      "main": [[{ "node": "AI Regenerar", "type": "main", "index": 0 }]]
+    },
+    "AI Regenerar": {
+      "main": [[{ "node": "Guardrails Regen", "type": "main", "index": 0 }]]
+    },
+    "Guardrails Regen": {
+      "main": [[{ "node": "Guardar Regenerado", "type": "main", "index": 0 }]]
+    },
+    "Guardar Regenerado": {
+      "main": [[{ "node": "TG Regenerado", "type": "main", "index": 0 }]]
+    },
+
+    "Trigger Recap Viernes": {
+      "main": [[{ "node": "R1. Leer Buffer Descartes", "type": "main", "index": 0 }]]
+    },
+    "R1. Leer Buffer Descartes": {
+      "main": [[{ "node": "R2. Filtrar Rechazados", "type": "main", "index": 0 }]]
+    },
+    "R2. Filtrar Rechazados": {
+      "main": [[{ "node": "Hay Descartes?", "type": "main", "index": 0 }]]
+    },
+    "Hay Descartes?": {
+      "main": [
+        [{ "node": "R3. AI Curador Recap", "type": "main", "index": 0 }],
+        [{ "node": "TG Sin Recap", "type": "main", "index": 0 }]
+      ]
+    },
+    "R3. AI Curador Recap": {
+      "main": [[{ "node": "R4. Guardrails Recap", "type": "main", "index": 0 }]]
+    },
+    "R4. Guardrails Recap": {
+      "main": [[{ "node": "R5. Guardar Recap", "type": "main", "index": 0 }]]
+    },
+    "R5. Guardar Recap": {
+      "main": [[{ "node": "R6. Reset Semanal", "type": "main", "index": 0 }]]
+    },
+    "R6. Reset Semanal": {
+      "main": [[{ "node": "R7. TG Recap", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "tags": [{ "name": "aura-studio" }, { "name": "content-engine-v2" }]
+}

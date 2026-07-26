@@ -1,0 +1,12 @@
+﻿.env
+.env.*
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+
+# JSON and Markdown only
+/*
+!/.gitignore
+!/*.json
+!/*.md

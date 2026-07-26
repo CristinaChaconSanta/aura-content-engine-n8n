@@ -1,0 +1,968 @@
+{
+  "name": "Aura Studio v4 - La Redaccion Autonoma",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 7,
+              "daysInterval": 2
+            }
+          ]
+        }
+      },
+      "id": "a0000001-0001-4000-8000-000000000001",
+      "name": "1. Trigger Contenido",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://news.mit.edu/topic/artificial-intelligence2/feed",
+        "options": {}
+      },
+      "id": "a0000001-0001-4000-8000-000000000002",
+      "name": "2. RSS MIT",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [440, 160]
+    },
+    {
+      "parameters": {
+        "url": "=https://www.wired.com/feed/tag/ai/latest/rss",
+        "options": {}
+      },
+      "id": "a0000001-0001-4000-8000-000000000003",
+      "name": "2. RSS Wired",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [440, 360]
+    },
+    {
+      "parameters": {
+        "url": "=https://www.cio.com/feed/",
+        "options": {}
+      },
+      "id": "a0000001-0001-4000-8000-000000000004",
+      "name": "2. RSS CIO",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [440, 560]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "multiplex",
+        "options": {}
+      },
+      "id": "a0000001-0001-4000-8000-000000000005",
+      "name": "3. Unir Fuentes",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// AI CURADOR - Fase 1: Sabueso\n// Limpia y normaliza los artículos crudos de RSS\nconst items = $input.all();\nconst cleaned = [];\nconst seen = new Set();\n\nfor (const item of items) {\n  const j = item.json;\n  const title = (j.title || '').trim();\n  const link = (j.link || j.guid || '').trim();\n  const desc = (j.contentSnippet || j.description || j.content || '').replace(/<[^>]*>/g, '').substring(0, 500);\n  const pubDate = j.pubDate || j.isoDate || new Date().toISOString();\n  const source = j.creator || j.author || 'Unknown';\n  \n  // Deduplicar por titulo\n  const key = title.toLowerCase().replace(/[^a-z0-9]/g, '');\n  if (key.length < 10 || seen.has(key)) continue;\n  seen.add(key);\n  \n  // Filtrar: solo articulos sobre IA/tech/negocios\n  const keywords = ['ai', 'artificial', 'intelligence', 'machine learning', 'automation', 'digital', 'tech', 'business', 'strategy', 'innovation', 'agent', 'llm', 'gpt', 'model'];\n  const text = (title + ' ' + desc).toLowerCase();\n  const relevant = keywords.some(k => text.includes(k));\n  \n  if (relevant) {\n    cleaned.push({\n      json: {\n        title: title,\n        url: link,\n        description: desc,\n        published: pubDate,\n        source: source,\n        relevance_score: keywords.filter(k => text.includes(k)).length\n      }\n    });\n  }\n}\n\n// Ordenar por relevancia y tomar top 10\ncleaned.sort((a, b) => b.json.relevance_score - a.json.relevance_score);\nreturn cleaned.slice(0, 10);"
+      },
+      "id": "a0000001-0001-4000-8000-000000000006",
+      "name": "4. AI Curador",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [940, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// GUARDRAILS POST-CURADOR\nconst items = $input.all();\nconst valid = [];\nconst alerts = [];\n\nfor (const item of items) {\n  const j = item.json;\n  \n  // G1: Titulo presente y no vacio\n  if (!j.title || j.title.trim().length < 5) {\n    alerts.push('Articulo sin titulo valido descartado');\n    continue;\n  }\n  \n  // G2: URL presente\n  if (!j.url || !j.url.startsWith('http')) {\n    alerts.push(`Articulo \"${j.title}\" sin URL valida`);\n    continue;\n  }\n  \n  // G3: Descripcion minima\n  if (!j.description || j.description.length < 20) {\n    j.description = j.title; // fallback\n  }\n  \n  valid.push({ json: j });\n}\n\nif (valid.length === 0) {\n  return [{ json: { error: 'No hay articulos validos despues de curar', alerts } }];\n}\n\nreturn valid;"
+      },
+      "id": "a0000001-0001-4000-8000-000000000007",
+      "name": "5. Guardrails Curador",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1180, 300]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": { "__rl": true, "mode": "id", "value": "SPREADSHEET_ID" },
+        "sheetName": { "__rl": true, "mode": "list", "value": "memoria" },
+        "options": {}
+      },
+      "id": "a0000001-0001-4000-8000-000000000008",
+      "name": "6. Leer Context Graph",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1180, 560]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "mergeByPosition",
+        "options": { "clashHandling": { "values": { "resolveClash": "addSuffix" } } }
+      },
+      "id": "a0000001-0001-4000-8000-000000000009",
+      "name": "7. Merge Contexto",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [1420, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// AI DIRECTOR CREATIVO - Fase 2: Estratega\n// Filtra duplicados vs Context Graph y selecciona los mejores temas\nconst items = $input.all();\n\n// Separar articulos nuevos vs memoria\nconst articulos = [];\nconst memoria = [];\n\nfor (const item of items) {\n  const j = item.json;\n  if (j.topic || j.status) {\n    memoria.push(j);\n  } else if (j.title) {\n    articulos.push(j);\n  }\n}\n\n// Filtrar duplicados contra Context Graph\nconst temasUsados = memoria.map(m => (m.topic || '').toLowerCase());\nconst nuevos = articulos.filter(a => {\n  const titulo = a.title.toLowerCase();\n  return !temasUsados.some(t => {\n    if (!t) return false;\n    const words = t.split(' ').filter(w => w.length > 4);\n    return words.filter(w => titulo.includes(w)).length >= 2;\n  });\n});\n\nif (nuevos.length === 0) {\n  return [{ json: { skip: true, reason: 'Todos los articulos ya fueron cubiertos' } }];\n}\n\n// Preparar para el AI Director Creativo\nreturn [{\n  json: {\n    articulos_disponibles: nuevos.slice(0, 5),\n    articulos_count: nuevos.length,\n    memoria_count: memoria.length,\n    temas_ya_cubiertos: temasUsados.slice(-10)\n  }\n}];"
+      },
+      "id": "a0000001-0001-4000-8000-000000000010",
+      "name": "8. Filtrar Duplicados",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1660, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "" },
+          "conditions": [
+            {
+              "id": "cond-skip",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notEquals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "a0000001-0001-4000-8000-000000000011",
+      "name": "9. Hay Noticias?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1900, 400]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "Eres el DIRECTOR CREATIVO de Aura Studio, una marca de contenido tech para profesionales latinoamericanos. Filosofia: 'Work fast, live slow'.\n\nTu trabajo: Seleccionar EL MEJOR articulo y definir el angulo editorial.\n\nREGLAS:\n- El contenido debe ser RELEVANTE para profesionales y empresarios latinos\n- El angulo debe provocar CURIOSIDAD y ser ACCIONABLE\n- Evitar angulos genericos tipo 'la IA va a cambiar todo'\n- Preferir angulos tipo 'como X empresa uso Y para lograr Z'\n- El tono es sofisticado pero accesible, como un mentor confiable\n\nResponde SOLO en JSON valido con esta estructura:\n{\n  \"selected_article\": { \"title\": \"...\", \"url\": \"...\", \"source\": \"...\" },\n  \"editorial_angle\": \"El angulo especifico para el carrusel\",\n  \"hook\": \"La frase gancho para el slide 1 (max 8 palabras, MAYUSCULAS)\",\n  \"key_insight\": \"El dato o insight principal del articulo\",\n  \"target_emotion\": \"curiosidad|urgencia|aspiracion|revelacion\",\n  \"rejected_articles\": [{\"title\": \"...\", \"reason\": \"...\"}]\n}"
+            },
+            {
+              "role": "user",
+              "content": "=Articulos disponibles:\n{{ JSON.stringify($json.articulos_disponibles, null, 2) }}\n\nTemas ya cubiertos recientemente (NO repetir):\n{{ JSON.stringify($json.temas_ya_cubiertos) }}\n\nSelecciona el mejor articulo y define el angulo editorial."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.7,
+          "maxTokens": 1000
+        }
+      },
+      "id": "a0000001-0001-4000-8000-000000000012",
+      "name": "10. AI Director Creativo",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.8,
+      "position": [2140, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// GUARDRAILS POST-DIRECTOR CREATIVO\nconst raw = $input.first().json;\nlet data;\n\n// Parsear respuesta del AI\ntry {\n  const content = raw.message?.content || raw.choices?.[0]?.message?.content || JSON.stringify(raw);\n  const jsonMatch = content.match(/\\{[\\s\\S]*\\}/);\n  data = JSON.parse(jsonMatch[0]);\n} catch (e) {\n  return [{ json: { error: 'AI Director Creativo no devolvio JSON valido', raw: raw } }];\n}\n\nconst alerts = [];\n\n// G1: selected_article presente\nif (!data.selected_article || !data.selected_article.title) {\n  return [{ json: { error: 'No se selecciono ningun articulo', data } }];\n}\n\n// G2: hook presente y en mayusculas\nif (!data.hook) {\n  data.hook = data.selected_article.title.toUpperCase().split(' ').slice(0, 8).join(' ');\n  alerts.push('Hook generado automaticamente del titulo');\n} else {\n  data.hook = data.hook.toUpperCase();\n}\n\n// G3: hook max 8 palabras\nconst hookWords = data.hook.split(' ');\nif (hookWords.length > 10) {\n  data.hook = hookWords.slice(0, 8).join(' ');\n  alerts.push('Hook recortado a 8 palabras');\n}\n\n// G4: editorial_angle presente\nif (!data.editorial_angle) {\n  data.editorial_angle = 'Analisis de tendencia tech para profesionales';\n  alerts.push('Angulo editorial por defecto aplicado');\n}\n\n// G5: target_emotion valida\nconst validEmotions = ['curiosidad', 'urgencia', 'aspiracion', 'revelacion'];\nif (!validEmotions.includes(data.target_emotion)) {\n  data.target_emotion = 'curiosidad';\n}\n\ndata.guardrails_alerts = alerts;\nreturn [{ json: data }];"
+      },
+      "id": "a0000001-0001-4000-8000-000000000013",
+      "name": "11. Guardrails Director",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2380, 300]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": { "__rl": true, "mode": "id", "value": "SPREADSHEET_ID" },
+        "sheetName": { "__rl": true, "mode": "list", "value": "memoria" },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "topic": "={{ $json.selected_article.title }}",
+            "date": "={{ new Date().toISOString().split('T')[0] }}",
+            "source": "={{ $json.selected_article.source }}",
+            "source_url": "={{ $json.selected_article.url }}",
+            "status": "proposal",
+            "angle": "={{ $json.editorial_angle }}",
+            "carrusel_json": ""
+          }
+        },
+        "options": {}
+      },
+      "id": "a0000001-0001-4000-8000-000000000014",
+      "name": "12. Guardar Propuesta",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2620, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "TU_CHAT_ID",
+        "text": "=🔍 *NUEVA PROPUESTA - Aura Studio*\n\n📰 *Tema:* {{ $json.selected_article.title }}\n🎯 *Angulo:* {{ $json.editorial_angle }}\n🪝 *Hook:* {{ $json.hook }}\n💡 *Insight:* {{ $json.key_insight }}\n🎭 *Emocion:* {{ $json.target_emotion }}\n📎 *Fuente:* {{ $json.selected_article.source }}\n🔗 {{ $json.selected_article.url }}\n\n---\n*Responde:*\n✅ APROBAR - para producir el carrusel\n❌ RECHAZAR - para descartar\n🔄 REGENERAR - para otro angulo",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "a0000001-0001-4000-8000-000000000015",
+      "name": "13. TG Propuesta",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2860, 300]
+    },
+
+
+    {
+      "parameters": {
+        "updates": ["message"]
+      },
+      "id": "b0000001-0001-4000-8000-000000000001",
+      "name": "14. TG Trigger Aprobacion",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [200, 900]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parsear comando de Telegram\nconst msg = $input.first().json;\nconst text = (msg.message?.text || '').trim().toUpperCase();\n\nlet action = 'DEFAULT';\nif (text === 'APROBAR' || text === '✅' || text.startsWith('APROBAR')) {\n  action = 'APROBAR';\n} else if (text === 'RECHAZAR' || text === '❌' || text.startsWith('RECHAZAR')) {\n  action = 'RECHAZAR';\n} else if (text === 'REGENERAR' || text === '🔄' || text.startsWith('REGENERAR')) {\n  action = 'REGENERAR';\n}\n\nreturn [{ json: { action, original_text: text, chat_id: msg.message?.chat?.id } }];"
+      },
+      "id": "b0000001-0001-4000-8000-000000000002",
+      "name": "15. Parsear Comando",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 900]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "APROBAR", "operator": { "type": "string", "operation": "equals" } }]
+              },
+              "renameOutput": "APROBAR"
+            },
+            {
+              "conditions": {
+                "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "RECHAZAR", "operator": { "type": "string", "operation": "equals" } }]
+              },
+              "renameOutput": "RECHAZAR"
+            },
+            {
+              "conditions": {
+                "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "REGENERAR", "operator": { "type": "string", "operation": "equals" } }]
+              },
+              "renameOutput": "REGENERAR"
+            }
+          ]
+        },
+        "options": { "fallbackOutput": "extra" }
+      },
+      "id": "b0000001-0001-4000-8000-000000000003",
+      "name": "16. Router Decision",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [680, 900]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": { "__rl": true, "mode": "id", "value": "SPREADSHEET_ID" },
+        "sheetName": { "__rl": true, "mode": "list", "value": "memoria" },
+        "filters": {
+          "conditions": [{ "leftValue": "={{ $json.status }}", "rightValue": "proposal", "operator": { "type": "string", "operation": "equals" } }]
+        },
+        "options": { "returnAll": false, "limit": 1 }
+      },
+      "id": "b0000001-0001-4000-8000-000000000004",
+      "name": "17. Leer Propuesta Pendiente",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [940, 700]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "Eres el COPYWRITER de Aura Studio. Tu trabajo es crear el texto de un carrusel de Instagram de 5-6 slides.\n\nMARCA: Aura Studio - 'Work fast, live slow'\nTONO: Sofisticado, directo, como un mentor confiable\nAUDIENCIA: Profesionales y empresarios latinoamericanos 28-45\n\nESTRUCTURA DEL CARRUSEL (5-6 slides):\n- Slide 1 (HOOK): Titulo impactante en MAYUSCULAS, max 8 palabras. Debe generar curiosidad inmediata.\n- Slide 2 (PROBLEMA): Presenta el problema o contexto. Body max 25 palabras.\n- Slide 3 (DESARROLLO): Datos, ejemplos, o insight principal. Body max 25 palabras.\n- Slide 4 (SOLUCION): El framework, la herramienta o el enfoque. Body max 25 palabras.\n- Slide 5 (APLICACION): Como aplicarlo HOY. Accionable. Body max 25 palabras.\n- Slide 6 (CTA): Llamada a accion clara. Body max 15 palabras.\n\nREGLAS DE COPY:\n- Cada slide debe funcionar como pieza independiente\n- No usar 'revolucionario', 'increible', 'game-changer'\n- Usar datos especificos cuando sea posible\n- El hook debe provocar que el lector deslice\n- Usar pattern interrupts: preguntas, datos sorprendentes, declaraciones atrevidas\n\nResponde SOLO en JSON valido:\n{\n  \"slides\": [\n    {\n      \"number\": 1,\n      \"type\": \"hook\",\n      \"layer_title_text\": \"TEXTO TITULO EN MAYUSCULAS\",\n      \"layer_body_text\": \"\",\n      \"layer_footer_text\": \"AURA STUDIO | 2026\"\n    }\n  ],\n  \"caption\": \"Texto del caption de Instagram...\",\n  \"hashtags\": [\"#AuraStudio\", \"#WorkFastLiveSlow\", \"...\"],\n  \"cta\": \"comenta\"\n}"
+            },
+            {
+              "role": "user",
+              "content": "=Crea el carrusel sobre:\n\nTema: {{ $json.topic }}\nAngulo: {{ $json.angle }}\nFuente: {{ $json.source }} - {{ $json.source_url }}\n\nGenera 5-6 slides siguiendo la estructura."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.8,
+          "maxTokens": 2000
+        }
+      },
+      "id": "b0000001-0001-4000-8000-000000000005",
+      "name": "18. AI Copywriter",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.8,
+      "position": [1180, 700]
+    },
+    {
+      "parameters": {
+        "jsCode": "// GUARDRAILS POST-COPYWRITER\nconst raw = $input.first().json;\nlet data;\n\ntry {\n  const content = raw.message?.content || raw.choices?.[0]?.message?.content || JSON.stringify(raw);\n  const jsonMatch = content.match(/\\{[\\s\\S]*\\}/);\n  data = JSON.parse(jsonMatch[0]);\n} catch (e) {\n  return [{ json: { error: 'Copywriter no devolvio JSON valido', raw } }];\n}\n\nconst alerts = [];\n\n// G1: 5-6 slides obligatorio\nif (!data.slides || data.slides.length < 5) {\n  return [{ json: { error: 'Menos de 5 slides generados', data } }];\n}\nif (data.slides.length > 6) {\n  data.slides = data.slides.slice(0, 6);\n  alerts.push('Recortado a 6 slides');\n}\n\n// G2: Cada slide tiene layer_title_text\nfor (const slide of data.slides) {\n  if (!slide.layer_title_text || slide.layer_title_text.trim() === '') {\n    alerts.push(`Slide ${slide.number}: falta titulo`);\n    slide.layer_title_text = 'AURA STUDIO';\n  }\n}\n\n// G3: Titulo max 10 palabras\nfor (const slide of data.slides) {\n  const words = slide.layer_title_text.split(' ');\n  if (words.length > 10) {\n    slide.layer_title_text = words.slice(0, 10).join(' ');\n    alerts.push(`Slide ${slide.number}: titulo recortado a 10 palabras`);\n  }\n}\n\n// G4: Body max 30 palabras\nfor (const slide of data.slides) {\n  if (slide.layer_body_text) {\n    const words = slide.layer_body_text.split(' ');\n    if (words.length > 30) {\n      slide.layer_body_text = words.slice(0, 30).join(' ');\n      alerts.push(`Slide ${slide.number}: body recortado a 30 palabras`);\n    }\n  }\n}\n\n// G5: Footer default\nfor (const slide of data.slides) {\n  if (!slide.layer_footer_text || slide.layer_footer_text.trim() === '') {\n    slide.layer_footer_text = 'AURA STUDIO | 2026';\n  }\n}\n\n// G6: Hashtag #AuraStudio obligatorio\nif (!data.hashtags) data.hashtags = [];\nif (!data.hashtags.includes('#AuraStudio')) {\n  data.hashtags.unshift('#AuraStudio');\n}\nif (!data.hashtags.includes('#WorkFastLiveSlow')) {\n  data.hashtags.push('#WorkFastLiveSlow');\n}\n\n// G7: CTA valido\nconst validCTAs = ['comenta', 'guarda', 'comparte'];\nif (!data.cta || !validCTAs.includes(data.cta.toLowerCase())) {\n  data.cta = 'comenta';\n}\n\ndata.guardrails_alerts = alerts;\nreturn [{ json: data }];"
+      },
+      "id": "b0000001-0001-4000-8000-000000000006",
+      "name": "19. Guardrails Copy",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1420, 700]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "Eres el DIRECTOR DE ARTE de Aura Studio. Tu trabajo es crear los prompts de imagen de fondo para cada slide del carrusel.\n\nESTILO VISUAL DE LA MARCA:\n- Fotografia cinematografica editorial\n- Naturaleza latinoamericana: cafetales colombianos, costas tropicales, montanas andinas, selva amazonica\n- Paleta: verdes profundos (#1B4332), beige crema (#F5F0E8), dorado (#D4A574), azul noche (#1A1A2E)\n- Golden hour, neblina matutina, luz natural dramatica\n- NUNCA: robots, circuitos, neon, cyberpunk, matrix, motherboard, oficinas genericas\n\nREGLAS CRITICAS:\n1. JAMAS incluir texto, tipografia, letras o numeros en las imagenes\n2. Cada prompt debe terminar con: 'no text, no typography, no letters, 1080x1080, 8k'\n3. La composicion debe dejar ESPACIO CENTRAL LIBRE para superponer texto\n4. Variar las escenas entre slides (no repetir el mismo paisaje)\n5. El mood debe coincidir con la emocion del slide\n\nResponde SOLO en JSON valido:\n{\n  \"backgrounds\": [\n    {\n      \"slide_number\": 1,\n      \"background_image_prompt\": \"Cinematic editorial photography of..., no text, no typography, no letters, 1080x1080, 8k\"\n    }\n  ]\n}"
+            },
+            {
+              "role": "user",
+              "content": "=Genera prompts de fondo para estos slides:\n\n{{ JSON.stringify($json.slides, null, 2) }}\n\nCada fondo debe complementar el tema y emocion del slide. Recuerda: composicion con espacio central libre para texto."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.9,
+          "maxTokens": 2000
+        }
+      },
+      "id": "b0000001-0001-4000-8000-000000000007",
+      "name": "20. AI Director de Arte",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.8,
+      "position": [1660, 700]
+    },
+    {
+      "parameters": {
+        "jsCode": "// GUARDRAILS POST-DIRECTOR DE ARTE\nconst raw = $input.first().json;\nlet data;\n\ntry {\n  const content = raw.message?.content || raw.choices?.[0]?.message?.content || JSON.stringify(raw);\n  const jsonMatch = content.match(/\\{[\\s\\S]*\\}/);\n  data = JSON.parse(jsonMatch[0]);\n} catch (e) {\n  return [{ json: { error: 'Director de Arte no devolvio JSON valido', raw } }];\n}\n\nconst alerts = [];\nconst prohibited = ['robot', 'circuit', 'neon', 'cyberpunk', 'matrix', 'motherboard', 'generic office', 'futuristic', 'sci-fi', 'hologram'];\n\nfor (const bg of data.backgrounds) {\n  let prompt = bg.background_image_prompt || '';\n  \n  // G6: Verificar 'no text' al final\n  if (!prompt.includes('no text')) {\n    prompt += ', no text, no typography, no letters, 1080x1080, 8k';\n    alerts.push(`Slide ${bg.slide_number}: agregado 'no text' al prompt`);\n  }\n  \n  // G7: Palabras prohibidas\n  for (const word of prohibited) {\n    if (prompt.toLowerCase().includes(word)) {\n      prompt = prompt.replace(new RegExp(word, 'gi'), 'tropical nature');\n      alerts.push(`Slide ${bg.slide_number}: '${word}' reemplazado por 'tropical nature'`);\n    }\n  }\n  \n  bg.background_image_prompt = prompt;\n}\n\ndata.guardrails_alerts = alerts;\nreturn [{ json: data }];"
+      },
+      "id": "b0000001-0001-4000-8000-000000000008",
+      "name": "21. Guardrails Arte",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1900, 700]
+    },
+    {
+      "parameters": {
+        "jsCode": "// COMPILAR: Unir textos del Copywriter con fondos del Director de Arte\n// y preparar el JSON final del carrusel\nconst arteData = $input.first().json;\n\n// Necesitamos los datos del copywriter del nodo anterior\n// Los slides vienen del guardrails copy y los backgrounds del guardrails arte\nconst copyData = $('19. Guardrails Copy').first().json;\n\nconst slides = copyData.slides.map(slide => {\n  const bg = arteData.backgrounds.find(b => b.slide_number === slide.number);\n  return {\n    number: slide.number,\n    type: slide.type || 'content',\n    layer_title_text: slide.layer_title_text,\n    layer_body_text: slide.layer_body_text || '',\n    layer_footer_text: slide.layer_footer_text || 'AURA STUDIO | 2026',\n    background_image_prompt: bg ? bg.background_image_prompt : 'Cinematic editorial photography of Colombian mountain landscape, morning golden light, deep greens, no text, no typography, no letters, 1080x1080, 8k'\n  };\n});\n\nconst propuesta = $('17. Leer Propuesta Pendiente').first().json;\n\nconst carrusel = {\n  meta: {\n    topic: propuesta.topic || copyData.slides[0].layer_title_text,\n    source: propuesta.source || 'Unknown',\n    source_url: propuesta.source_url || '',\n    generated_at: new Date().toISOString()\n  },\n  design_settings: {\n    template_id: 'aura_carousel_v1',\n    primary_color: '#1B4332',\n    accent_color: '#D4A574',\n    background_color: '#1A1A2E',\n    font_title: 'Kaneda Gothic Bold',\n    font_body: 'Inter Regular',\n    logo_variant: 'cream',\n    logo_position: 'bottom_right'\n  },\n  slides: slides,\n  caption: copyData.caption || '',\n  hashtags: copyData.hashtags || ['#AuraStudio', '#WorkFastLiveSlow'],\n  cta: copyData.cta || 'comenta'\n};\n\nreturn [{ json: carrusel }];"
+      },
+      "id": "b0000001-0001-4000-8000-000000000009",
+      "name": "22. Compilar Carrusel",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2140, 700]
+    },
+    {
+      "parameters": {
+        "jsCode": "// SEPARAR SLIDES para generar imagenes individualmente\nconst carrusel = $input.first().json;\nconst slides = carrusel.slides || [];\n\nreturn slides.map(slide => ({\n  json: {\n    slide_number: slide.number,\n    prompt: slide.background_image_prompt,\n    carrusel_meta: carrusel.meta,\n    design_settings: carrusel.design_settings\n  }\n}));"
+      },
+      "id": "b0000001-0001-4000-8000-000000000010",
+      "name": "23. Separar Slides",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2380, 700]
+    },
+    {
+      "parameters": {
+        "url": "https://api.openai.com/v1/images/generations",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"dall-e-3\",\n  \"prompt\": \"{{ $json.prompt }}\",\n  \"n\": 1,\n  \"size\": \"1024x1024\",\n  \"quality\": \"standard\"\n}",
+        "options": {},
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth"
+      },
+      "id": "b0000001-0001-4000-8000-000000000011",
+      "name": "24. DALL-E Fondos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2620, 700]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Recopilar todas las imagenes generadas y compilar resultado final\nconst items = $input.all();\nconst carrusel = $('22. Compilar Carrusel').first().json;\n\n// Agregar URLs de imagenes a cada slide\nfor (const item of items) {\n  const slideNum = item.json.slide_number;\n  const imageUrl = item.json.data?.[0]?.url || '';\n  const slide = carrusel.slides.find(s => s.number === slideNum);\n  if (slide) {\n    slide.background_image_url = imageUrl;\n  }\n}\n\nreturn [{ json: carrusel }];"
+      },
+      "id": "b0000001-0001-4000-8000-000000000012",
+      "name": "25. Recopilar Imagenes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2860, 700]
+    },
+    {
+      "parameters": {
+        "jsCode": "// PLACEHOLDER - Rendering con Bannerbear/Creatomate\n// Cuando tengas la API, descomentar y configurar\n// Por ahora, pasa el carrusel tal cual con las URLs de DALL-E\n\nconst carrusel = $input.first().json;\n\n// TODO: Para cada slide, llamar a la API de rendering:\n// POST https://api.bannerbear.com/v2/images\n// {\n//   \"template\": carrusel.design_settings.template_id,\n//   \"modifications\": [\n//     { \"name\": \"title\", \"text\": slide.layer_title_text },\n//     { \"name\": \"body\", \"text\": slide.layer_body_text },\n//     { \"name\": \"footer\", \"text\": slide.layer_footer_text },\n//     { \"name\": \"background\", \"image_url\": slide.background_image_url }\n//   ]\n// }\n\ncarrusel.render_status = 'PLACEHOLDER - Configurar Bannerbear/Creatomate';\ncarrusel.render_note = 'Las imagenes de fondo estan en background_image_url de cada slide. El texto se debe superponer con la plantilla de rendering.';\n\nreturn [{ json: carrusel }];"
+      },
+      "id": "b0000001-0001-4000-8000-000000000013",
+      "name": "26. Render Plantilla [PLACEHOLDER]",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3100, 700]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": { "__rl": true, "mode": "id", "value": "SPREADSHEET_ID" },
+        "sheetName": { "__rl": true, "mode": "list", "value": "memoria" },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "published",
+            "carrusel_json": "={{ JSON.stringify($json) }}"
+          }
+        },
+        "options": {
+          "cellFormat": "USER_ENTERED"
+        }
+      },
+      "id": "b0000001-0001-4000-8000-000000000014",
+      "name": "27. Actualizar Memoria",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [3340, 700]
+    },
+    {
+      "parameters": {
+        "chatId": "TU_CHAT_ID",
+        "text": "=✅ *CARRUSEL PRODUCIDO - Aura Studio*\n\n📰 *Tema:* {{ $json.meta.topic }}\n📊 *Slides:* {{ $json.slides.length }}\n🎨 *Imagenes:* Fondos generados con DALL-E\n📝 *Caption:* {{ $json.caption }}\n🏷 *Hashtags:* {{ $json.hashtags.join(' ') }}\n\n⚠️ *Render:* {{ $json.render_status }}\n\n_Las imagenes de fondo estan listas. Cuando configures Bannerbear, se renderizaran automaticamente con tipografia y logo._",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "b0000001-0001-4000-8000-000000000015",
+      "name": "28. TG Carrusel Listo",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [3580, 700]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": { "__rl": true, "mode": "id", "value": "SPREADSHEET_ID" },
+        "sheetName": { "__rl": true, "mode": "list", "value": "memoria" },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "rejected"
+          }
+        },
+        "options": {}
+      },
+      "id": "b0000001-0001-4000-8000-000000000016",
+      "name": "29. Marcar Rechazado",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [940, 1100]
+    },
+    {
+      "parameters": {
+        "chatId": "TU_CHAT_ID",
+        "text": "❌ Propuesta rechazada. Se guardó para el recap semanal.\n\nEnvía otro comando o espera la próxima propuesta automática.",
+        "additionalFields": {}
+      },
+      "id": "b0000001-0001-4000-8000-000000000017",
+      "name": "30. TG Rechazado",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1180, 1100]
+    },
+    {
+      "parameters": {
+        "chatId": "TU_CHAT_ID",
+        "text": "🔄 Regenerando propuesta con un nuevo ángulo editorial...\n\nEspera un momento.",
+        "additionalFields": {}
+      },
+      "id": "b0000001-0001-4000-8000-000000000018",
+      "name": "31. TG Regenerando",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [940, 1300]
+    },
+    {
+      "parameters": {
+        "chatId": "TU_CHAT_ID",
+        "text": "🤖 No entendí ese comando.\n\nUsa:\n✅ APROBAR\n❌ RECHAZAR\n🔄 REGENERAR",
+        "additionalFields": {}
+      },
+      "id": "b0000001-0001-4000-8000-000000000019",
+      "name": "32. TG Comando No Valido",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [940, 1500]
+    },
+
+
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 17,
+              "triggerAtDay": 5
+            }
+          ]
+        }
+      },
+      "id": "c0000001-0001-4000-8000-000000000001",
+      "name": "33. Trigger Recap Viernes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [200, 1900]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": { "__rl": true, "mode": "id", "value": "SPREADSHEET_ID" },
+        "sheetName": { "__rl": true, "mode": "list", "value": "memoria" },
+        "options": {}
+      },
+      "id": "c0000001-0001-4000-8000-000000000002",
+      "name": "34. Leer Memoria Completa",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [440, 1900]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Filtrar solo rechazados de esta semana\nconst items = $input.all();\nconst now = new Date();\nconst weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);\n\nconst rechazados = items.filter(item => {\n  const j = item.json;\n  if (j.status !== 'rejected') return false;\n  const date = new Date(j.date);\n  return date >= weekAgo;\n});\n\nconst publicados = items.filter(item => {\n  const j = item.json;\n  if (j.status !== 'published') return false;\n  const date = new Date(j.date);\n  return date >= weekAgo;\n});\n\nif (rechazados.length === 0) {\n  return [{ json: { skip: true, publicados_count: publicados.length } }];\n}\n\nreturn [{\n  json: {\n    rechazados: rechazados.map(r => r.json),\n    rechazados_count: rechazados.length,\n    publicados_count: publicados.length,\n    semana: `${weekAgo.toISOString().split('T')[0]} - ${now.toISOString().split('T')[0]}`\n  }\n}];"
+      },
+      "id": "c0000001-0001-4000-8000-000000000003",
+      "name": "35. Filtrar Rechazados Semana",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 1900]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "" },
+          "conditions": [
+            {
+              "id": "cond-recap",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notEquals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "c0000001-0001-4000-8000-000000000004",
+      "name": "36. Hay Rechazados?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [920, 1900]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "Eres el CURADOR SEMANAL de Aura Studio. Recibes articulos rechazados durante la semana y debes seleccionar los 2-3 mas rescatables con angulos DIFERENTES a los originales.\n\nResponde en JSON:\n{\n  \"rescued\": [\n    {\n      \"original_topic\": \"...\",\n      \"new_angle\": \"...\",\n      \"why_rescue\": \"...\"\n    }\n  ],\n  \"weekly_summary\": \"Resumen de la semana en 2 oraciones\"\n}"
+            },
+            {
+              "role": "user",
+              "content": "=Articulos rechazados esta semana:\n{{ JSON.stringify($json.rechazados, null, 2) }}\n\nPublicados esta semana: {{ $json.publicados_count }}\n\nSelecciona los 2-3 mas rescatables con nuevos angulos."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.7,
+          "maxTokens": 1000
+        }
+      },
+      "id": "c0000001-0001-4000-8000-000000000005",
+      "name": "37. AI Curador Recap",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.8,
+      "position": [1160, 1800]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Guardrails Recap + formatear mensaje\nconst raw = $input.first().json;\nlet data;\n\ntry {\n  const content = raw.message?.content || raw.choices?.[0]?.message?.content || JSON.stringify(raw);\n  const jsonMatch = content.match(/\\{[\\s\\S]*\\}/);\n  data = JSON.parse(jsonMatch[0]);\n} catch (e) {\n  data = { rescued: [], weekly_summary: 'No se pudo generar recap' };\n}\n\nconst semana = $('35. Filtrar Rechazados Semana').first().json.semana;\nconst pubCount = $('35. Filtrar Rechazados Semana').first().json.publicados_count;\nconst rechCount = $('35. Filtrar Rechazados Semana').first().json.rechazados_count;\n\nlet msg = `📊 *RECAP SEMANAL - Aura Studio*\\n`;\nmsg += `📅 ${semana}\\n\\n`;\nmsg += `✅ Publicados: ${pubCount}\\n`;\nmsg += `❌ Rechazados: ${rechCount}\\n\\n`;\n\nif (data.rescued && data.rescued.length > 0) {\n  msg += `♻️ *Rescatados con nuevo angulo:*\\n`;\n  for (const r of data.rescued) {\n    msg += `\\n• *${r.original_topic}*\\n  → Nuevo angulo: ${r.new_angle}\\n  → Razon: ${r.why_rescue}\\n`;\n  }\n}\n\nif (data.weekly_summary) {\n  msg += `\\n📝 *Resumen:* ${data.weekly_summary}`;\n}\n\nreturn [{ json: { message: msg, data } }];"
+      },
+      "id": "c0000001-0001-4000-8000-000000000006",
+      "name": "38. Formatear Recap",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1400, 1800]
+    },
+    {
+      "parameters": {
+        "chatId": "TU_CHAT_ID",
+        "text": "={{ $json.message }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "c0000001-0001-4000-8000-000000000007",
+      "name": "39. TG Recap",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1640, 1800]
+    },
+
+
+    {
+      "parameters": {
+        "content": "## 🔍 FASE 1: SABUESO (Ingesta)\nTrigger programado → RSS feeds → AI Curador limpia y filtra → Guardrails validan datos",
+        "width": 700,
+        "height": 120,
+        "color": 3
+      },
+      "id": "d0000001-0001-4000-8000-000000000001",
+      "name": "Nota: Fase 1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [180, 80]
+    },
+    {
+      "parameters": {
+        "content": "## 🧠 FASE 2: ESTRATEGA (Cerebro)\nContext Graph (memoria) → Filtrar duplicados → AI Director Creativo selecciona tema + angulo → Guardrails validan → Guardar propuesta",
+        "width": 900,
+        "height": 120,
+        "color": 4
+      },
+      "id": "d0000001-0001-4000-8000-000000000002",
+      "name": "Nota: Fase 2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1160, 80]
+    },
+    {
+      "parameters": {
+        "content": "## ✅ FASE 3: EDITOR JEFE (Aprobacion)\nTelegram → APROBAR / RECHAZAR / REGENERAR\nHuman-in-the-loop para control editorial",
+        "width": 520,
+        "height": 120,
+        "color": 5
+      },
+      "id": "d0000001-0001-4000-8000-000000000003",
+      "name": "Nota: Fase 3",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [180, 780]
+    },
+    {
+      "parameters": {
+        "content": "## ✍️ FASE 4: PRODUCCION (Copy + Arte)\nAI Copywriter → Guardrails Copy → AI Director de Arte → Guardrails Arte → DALL-E fondos → Compilar carrusel",
+        "width": 1200,
+        "height": 120,
+        "color": 6
+      },
+      "id": "d0000001-0001-4000-8000-000000000004",
+      "name": "Nota: Fase 4",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1160, 560]
+    },
+    {
+      "parameters": {
+        "content": "## 🖼️ FASE 5: MAQUETADOR (Render)\nRender Plantilla [PLACEHOLDER] - Configurar Bannerbear/Creatomate cuando estes lista\nActualmente: entrega fondos DALL-E + textos separados",
+        "width": 600,
+        "height": 120,
+        "color": 2
+      },
+      "id": "d0000001-0001-4000-8000-000000000005",
+      "name": "Nota: Fase 5",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [3080, 560]
+    },
+    {
+      "parameters": {
+        "content": "## 📊 FASE 6: RECAP SEMANAL\nViernes 5PM → Leer rechazados → AI Curador rescata los mejores → Telegram con resumen",
+        "width": 700,
+        "height": 120,
+        "color": 1
+      },
+      "id": "d0000001-0001-4000-8000-000000000006",
+      "name": "Nota: Fase 6",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [180, 1680]
+    }
+  ],
+  "connections": {
+    "1. Trigger Contenido": {
+      "main": [
+        [
+          { "node": "2. RSS MIT", "type": "main", "index": 0 },
+          { "node": "2. RSS Wired", "type": "main", "index": 0 },
+          { "node": "2. RSS CIO", "type": "main", "index": 0 },
+          { "node": "6. Leer Context Graph", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "2. RSS MIT": {
+      "main": [
+        [
+          { "node": "3. Unir Fuentes", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "2. RSS Wired": {
+      "main": [
+        [
+          { "node": "3. Unir Fuentes", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "2. RSS CIO": {
+      "main": [
+        [
+          { "node": "3. Unir Fuentes", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "3. Unir Fuentes": {
+      "main": [
+        [
+          { "node": "4. AI Curador", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "4. AI Curador": {
+      "main": [
+        [
+          { "node": "5. Guardrails Curador", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "5. Guardrails Curador": {
+      "main": [
+        [
+          { "node": "7. Merge Contexto", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "6. Leer Context Graph": {
+      "main": [
+        [
+          { "node": "7. Merge Contexto", "type": "main", "index": 1 }
+        ]
+      ]
+    },
+    "7. Merge Contexto": {
+      "main": [
+        [
+          { "node": "8. Filtrar Duplicados", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "8. Filtrar Duplicados": {
+      "main": [
+        [
+          { "node": "9. Hay Noticias?", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "9. Hay Noticias?": {
+      "main": [
+        [
+          { "node": "10. AI Director Creativo", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "10. AI Director Creativo": {
+      "main": [
+        [
+          { "node": "11. Guardrails Director", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "11. Guardrails Director": {
+      "main": [
+        [
+          { "node": "12. Guardar Propuesta", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "12. Guardar Propuesta": {
+      "main": [
+        [
+          { "node": "13. TG Propuesta", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "14. TG Trigger Aprobacion": {
+      "main": [
+        [
+          { "node": "15. Parsear Comando", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "15. Parsear Comando": {
+      "main": [
+        [
+          { "node": "16. Router Decision", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "16. Router Decision": {
+      "main": [
+        [
+          { "node": "17. Leer Propuesta Pendiente", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "29. Marcar Rechazado", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "31. TG Regenerando", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "32. TG Comando No Valido", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "17. Leer Propuesta Pendiente": {
+      "main": [
+        [
+          { "node": "18. AI Copywriter", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "18. AI Copywriter": {
+      "main": [
+        [
+          { "node": "19. Guardrails Copy", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "19. Guardrails Copy": {
+      "main": [
+        [
+          { "node": "20. AI Director de Arte", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "20. AI Director de Arte": {
+      "main": [
+        [
+          { "node": "21. Guardrails Arte", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "21. Guardrails Arte": {
+      "main": [
+        [
+          { "node": "22. Compilar Carrusel", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "22. Compilar Carrusel": {
+      "main": [
+        [
+          { "node": "23. Separar Slides", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "23. Separar Slides": {
+      "main": [
+        [
+          { "node": "24. DALL-E Fondos", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "24. DALL-E Fondos": {
+      "main": [
+        [
+          { "node": "25. Recopilar Imagenes", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "25. Recopilar Imagenes": {
+      "main": [
+        [
+          { "node": "26. Render Plantilla [PLACEHOLDER]", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "26. Render Plantilla [PLACEHOLDER]": {
+      "main": [
+        [
+          { "node": "27. Actualizar Memoria", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "27. Actualizar Memoria": {
+      "main": [
+        [
+          { "node": "28. TG Carrusel Listo", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "29. Marcar Rechazado": {
+      "main": [
+        [
+          { "node": "30. TG Rechazado", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "33. Trigger Recap Viernes": {
+      "main": [
+        [
+          { "node": "34. Leer Memoria Completa", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "34. Leer Memoria Completa": {
+      "main": [
+        [
+          { "node": "35. Filtrar Rechazados Semana", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "35. Filtrar Rechazados Semana": {
+      "main": [
+        [
+          { "node": "36. Hay Rechazados?", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "36. Hay Rechazados?": {
+      "main": [
+        [
+          { "node": "37. AI Curador Recap", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "37. AI Curador Recap": {
+      "main": [
+        [
+          { "node": "38. Formatear Recap", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "38. Formatear Recap": {
+      "main": [
+        [
+          { "node": "39. TG Recap", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}
