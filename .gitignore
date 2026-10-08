@@ -1,9 +1,15 @@
 ﻿.env
 .env.*
+!.env.example
 node_modules/
 .venv/
 __pycache__/
-*.pyc
+*.py[cod]
+credentials.json
+*credentials*
+*.pem
+*.key
+secrets/
 
 # JSON and Markdown only
 /*
